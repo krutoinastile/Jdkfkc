@@ -4,7 +4,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.config import Settings
 
 
-def main_menu_keyboard(settings: Settings) -> InlineKeyboardMarkup:
+def main_menu_keyboard(settings: Settings, is_admin: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="🚀 Зарегистрироваться в BingX", url=settings.bingx_ref_link)
     builder.button(text="✅ Я зарегистрировался", callback_data="user:registered")
@@ -14,6 +14,8 @@ def main_menu_keyboard(settings: Settings) -> InlineKeyboardMarkup:
         builder.button(text="💬 Поддержка", url=settings.support_url)
     else:
         builder.button(text="💬 Поддержка", callback_data="user:support")
+    if is_admin:
+        builder.button(text="🛠 Админ-панель", callback_data="admin:applications:refresh")
     builder.adjust(1)
     return builder.as_markup()
 

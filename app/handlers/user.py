@@ -8,7 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.database.models import UserStatus
-from app.database.repositories import create_application, get_or_create_user, mark_user_registered
+from app.database.repositories import (
+    create_application,
+    get_or_create_user,
+    is_admin as is_user_admin,
+    mark_user_registered,
+)
 from app.keyboards.user import cancel_keyboard, main_menu_keyboard, registered_keyboard
 from app.services.notifications import notify_admins_new_application
 from app.states.application import ApplicationForm
@@ -25,7 +30,8 @@ async def start_command(message: Message, session: AsyncSession, settings: Setti
         return
 
     await get_or_create_user(session, message.from_user.id, message.from_user.username)
-    await message.answer(welcome_text(), reply_markup=main_menu_keyboard(settings))
+    admin = await is_user_admin(session, message.from_user.id, settings.parsed_admin_ids)
+    await message.answer(welcome_text(), reply_markup=main_menu_keyboard(settings, is_admin=admin))
 
 
 @router.message(Command("cancel"))
@@ -35,10 +41,11 @@ async def cancel_command(message: Message, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data == "user:menu")
-async def show_menu(callback: CallbackQuery, settings: Settings) -> None:
+async def show_menu(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
     await callback.answer()
     if isinstance(callback.message, Message):
-        await callback.message.answer(welcome_text(), reply_markup=main_menu_keyboard(settings))
+        admin = await is_user_admin(session, callback.from_user.id, settings.parsed_admin_ids)
+        await callback.message.answer(welcome_text(), reply_markup=main_menu_keyboard(settings, is_admin=admin))
 
 
 @router.callback_query(F.data == "user:registered")
