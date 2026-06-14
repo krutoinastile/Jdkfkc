@@ -37,11 +37,17 @@ def welcome_text() -> str:
 
 def application_text(application: Application) -> str:
     user = application.user
+    moderator = application.moderator or "-"
+    decided_at = format_datetime(application.decided_at) if application.decided_at else "-"
+    reason = application.decision_reason or "-"
     return (
         f"📄 <b>Заявка #{application.id}</b>\n\n"
         f"Telegram ID: <code>{user.tg_id}</code>\n"
         f"Username: {format_username(user)}\n"
         f"BingX UID: <code>{user.bingx_uid or '-'}</code>\n"
         f"Дата: {format_datetime(application.created_at)}\n"
-        f"Решение: <code>{application.decision}</code>"
+        f"Решение: <code>{application.decision}</code>\n"
+        f"Модератор: <code>{moderator}</code>\n"
+        f"Дата решения: {decided_at}\n"
+        f"Причина: {reason}"
     )

@@ -15,7 +15,7 @@ def main_menu_keyboard(settings: Settings, is_admin: bool = False) -> InlineKeyb
     else:
         builder.button(text="💬 Поддержка", callback_data="user:support")
     if is_admin:
-        builder.button(text="🛠 Админ-панель", callback_data="admin:applications:refresh")
+        builder.button(text="🛠 Админ-панель", callback_data="admin:menu")
     builder.adjust(1)
     return builder.as_markup()
 

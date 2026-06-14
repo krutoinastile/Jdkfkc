@@ -60,6 +60,8 @@ class Application(Base):
         nullable=False,
     )
     moderator: Mapped[int | None] = mapped_column(BigInteger)
+    decision_reason: Mapped[str | None] = mapped_column(String(512))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

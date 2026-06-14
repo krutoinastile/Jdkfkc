@@ -40,7 +40,9 @@ async def notify_user_decision(
     user: User,
     decision: ApplicationDecision,
     invite_link: str | None = None,
+    reason: str | None = None,
 ) -> None:
+    reason_text = f"\n\nПричина: <b>{reason}</b>" if reason else ""
     if decision == ApplicationDecision.APPROVED:
         text = (
             "✅ <b>Заявка одобрена!</b>\n\n"
@@ -51,14 +53,16 @@ async def notify_user_decision(
         text = (
             "❌ <b>Заявка отклонена.</b>\n\n"
             "Проверьте корректность UID, регистрацию по реферальной ссылке и скриншот пополнения."
+            f"{reason_text}"
         )
     elif decision == ApplicationDecision.RESUBMIT:
         text = (
             "📝 <b>Администратор запросил повторную отправку.</b>\n\n"
             "Пожалуйста, подайте заявку заново и приложите корректные скриншоты."
+            f"{reason_text}"
         )
     elif decision == ApplicationDecision.BLOCKED:
-        text = "🚫 <b>Доступ заблокирован.</b>"
+        text = f"🚫 <b>Доступ заблокирован.</b>{reason_text}"
     else:
         text = "Статус вашей заявки изменился."
 

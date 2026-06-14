@@ -1,6 +1,7 @@
 from collections.abc import Iterable
+from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -68,24 +69,80 @@ async def create_application(
     return application
 
 
-async def list_pending_applications(session: AsyncSession, limit: int = 20) -> list[Application]:
+async def list_applications(
+    session: AsyncSession,
+    decision: ApplicationDecision | None = None,
+    page: int = 0,
+    page_size: int = 5,
+) -> list[Application]:
+    statement = select(Application).options(selectinload(Application.user))
+    if decision is not None:
+        statement = statement.where(Application.decision == decision.value)
+
+    order_by = Application.created_at.asc() if decision == ApplicationDecision.PENDING else Application.created_at.desc()
     result = await session.execute(
-        select(Application)
-        .options(selectinload(Application.user))
-        .where(Application.decision == ApplicationDecision.PENDING.value)
-        .order_by(Application.created_at.asc())
-        .limit(limit)
+        statement.order_by(order_by).offset(page * page_size).limit(page_size),
     )
     return list(result.scalars().all())
 
 
-async def count_pending_applications(session: AsyncSession) -> int:
-    result = await session.execute(
-        select(func.count(Application.id)).where(
-            Application.decision == ApplicationDecision.PENDING.value,
-        )
-    )
+async def list_pending_applications(session: AsyncSession, limit: int = 20) -> list[Application]:
+    return await list_applications(session, ApplicationDecision.PENDING, page=0, page_size=limit)
+
+
+async def count_applications(
+    session: AsyncSession,
+    decision: ApplicationDecision | None = None,
+) -> int:
+    statement = select(func.count(Application.id))
+    if decision is not None:
+        statement = statement.where(Application.decision == decision.value)
+    result = await session.execute(statement)
     return int(result.scalar_one())
+
+
+async def count_pending_applications(session: AsyncSession) -> int:
+    return await count_applications(session, ApplicationDecision.PENDING)
+
+
+async def get_application_counts(session: AsyncSession) -> dict[str, int]:
+    result = await session.execute(
+        select(Application.decision, func.count(Application.id)).group_by(Application.decision),
+    )
+    counts = {decision.value: 0 for decision in ApplicationDecision}
+    for decision, count in result.all():
+        counts[str(decision)] = int(count)
+    counts["all"] = sum(counts.values())
+    return counts
+
+
+async def count_users(session: AsyncSession) -> int:
+    result = await session.execute(select(func.count(User.id)))
+    return int(result.scalar_one())
+
+
+async def search_applications(session: AsyncSession, query: str, limit: int = 10) -> list[Application]:
+    normalized_query = query.strip().lower().lstrip("@")
+    if not normalized_query:
+        return []
+
+    conditions = [
+        func.lower(User.username).like(f"%{normalized_query}%"),
+        func.lower(User.bingx_uid).like(f"%{normalized_query}%"),
+    ]
+    if normalized_query.isdigit():
+        conditions.append(User.tg_id == int(normalized_query))
+        conditions.append(Application.id == int(normalized_query))
+
+    result = await session.execute(
+        select(Application)
+        .join(Application.user)
+        .options(selectinload(Application.user))
+        .where(or_(*conditions))
+        .order_by(Application.created_at.desc())
+        .limit(limit),
+    )
+    return list(result.scalars().all())
 
 
 async def get_application(session: AsyncSession, application_id: int) -> Application | None:
@@ -102,6 +159,7 @@ async def set_application_decision(
     application: Application,
     decision: ApplicationDecision,
     moderator_tg_id: int,
+    reason: str | None = None,
 ) -> Application:
     status_by_decision = {
         ApplicationDecision.APPROVED: UserStatus.APPROVED,
@@ -111,6 +169,8 @@ async def set_application_decision(
     }
     application.decision = decision.value
     application.moderator = moderator_tg_id
+    application.decision_reason = reason
+    application.decided_at = datetime.now(timezone.utc)
     application.user.status = status_by_decision[decision].value
     await session.commit()
     await session.refresh(application, attribute_names=["user"])
