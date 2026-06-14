@@ -1,0 +1,10 @@
+services:
+  bingxbot:
+    build:
+      context: .
+    container_name: bingxbot
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
