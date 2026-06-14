@@ -9,6 +9,7 @@ from app.database.models import (
     Account,
     Admin,
     BusinessConnection,
+    CryptoInvoice,
     Dialog,
     MessageEdit,
     PaymentRecord,
@@ -446,4 +447,61 @@ async def create_payment_record(
 async def get_account_by_id(session: AsyncSession, account_id: int) -> Account | None:
     result = await session.execute(select(Account).where(Account.id == account_id))
     return result.scalar_one_or_none()
+
+
+async def create_crypto_invoice_record(
+    session: AsyncSession,
+    *,
+    account_id: int,
+    crypto_invoice_id: int,
+    payload: str,
+    asset: str,
+    amount: str,
+    pay_url: str | None,
+) -> CryptoInvoice:
+    invoice = CryptoInvoice(
+        account_id=account_id,
+        crypto_invoice_id=crypto_invoice_id,
+        payload=payload,
+        asset=asset,
+        amount=amount,
+        pay_url=pay_url,
+    )
+    session.add(invoice)
+    await session.commit()
+    await session.refresh(invoice, attribute_names=["account"])
+    return invoice
+
+
+async def get_crypto_invoice_by_crypto_id(
+    session: AsyncSession,
+    crypto_invoice_id: int,
+) -> CryptoInvoice | None:
+    result = await session.execute(
+        select(CryptoInvoice)
+        .options(selectinload(CryptoInvoice.account))
+        .where(CryptoInvoice.crypto_invoice_id == crypto_invoice_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def list_pending_crypto_invoices(
+    session: AsyncSession,
+    limit: int = 50,
+) -> list[CryptoInvoice]:
+    result = await session.execute(
+        select(CryptoInvoice)
+        .options(selectinload(CryptoInvoice.account))
+        .where(CryptoInvoice.status == "active")
+        .order_by(CryptoInvoice.created_at.asc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def mark_crypto_invoice_paid(session: AsyncSession, invoice: CryptoInvoice) -> CryptoInvoice:
+    invoice.status = "paid"
+    await session.commit()
+    await session.refresh(invoice)
+    return invoice
 

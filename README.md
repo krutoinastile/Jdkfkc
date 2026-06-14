@@ -98,16 +98,23 @@ Secrets:
 
 ## Оплата подписки
 
-Поддерживаются **Telegram Stars** (`XTR`) и **рубли** (`RUB` через provider token).
+Поддерживаются три способа:
+
+| Способ | Описание |
+|--------|----------|
+| **Telegram Stars** | Встроенные платежи Telegram (`XTR`) |
+| **Рубли** | Telegram Payments + provider token |
+| **Crypto Pay** | Криптовалюта через @CryptoBot API |
 
 Пользователь: **Подписка → Оплатить**.
 
 Админ: **Админ-панель → Оплата**:
 - включить/выключить оплату
-- изменить **provider token** (для RUB; для Stars отправьте `-`)
-- изменить **цену** (Stars или рубли)
-- изменить **количество дней** за оплату
-- переключить валюту Stars ↔ RUB
+- переключить способ: Stars → RUB → Crypto Pay
+- **Crypto Pay API token** — из @CryptoBot → Crypto Pay → Create App
+- **Монета** — USDT, TON, BTC и др.
+- **Цена** — для крипты указывается сумма в выбранной монете
+- **Testnet** — для тестов через @CryptoTestnetBot
 
 ## Структура
 

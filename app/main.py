@@ -16,6 +16,7 @@ from app.handlers.user import router as user_router
 from app.logging_config import setup_logging
 from app.middlewares.db import DbSessionMiddleware
 from app.middlewares.throttling import ThrottlingMiddleware
+from app.services.crypto_scheduler import setup_crypto_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,9 @@ async def main() -> None:
     dispatcher.include_router(admin_router)
     dispatcher.include_router(user_router)
 
+    scheduler = setup_crypto_scheduler(session_pool, bot)
+    scheduler.start()
+
     logger.info("Starting business chat monitor bot")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
@@ -60,6 +64,7 @@ async def main() -> None:
             allowed_updates=BUSINESS_UPDATE_TYPES,
         )
     finally:
+        scheduler.shutdown(wait=False)
         await bot.session.close()
         await engine.dispose()
 

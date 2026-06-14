@@ -18,29 +18,17 @@ def format_price(settings: PaymentSettings) -> str:
         if settings.price_amount % 100 == 0:
             return f"{int(rubles)} ₽"
         return f"{rubles:.2f} ₽"
+    if settings.currency == "CRYPTO":
+        return f"{settings.crypto_amount} {settings.crypto_asset}"
     return f"{settings.price_amount} {settings.currency}"
 
 
 def mask_provider_token(token: str | None) -> str:
     if not token:
-        return "не задан (Stars)"
+        return "не задан"
     if len(token) <= 8:
         return "••••••••"
     return f"{'•' * (len(token) - 8)}{token[-8:]}"
-
-
-def payment_settings_text(settings: PaymentSettings) -> str:
-    status = "включена" if settings.is_enabled else "выключена"
-    currency_label = "Telegram Stars" if settings.currency == "XTR" else settings.currency
-    return (
-        "<b>Настройки оплаты</b>\n\n"
-        f"Статус: <b>{status}</b>\n"
-        f"Цена: <b>{format_price(settings)}</b>\n"
-        f"Валюта: <b>{currency_label}</b>\n"
-        f"Дней подписки: <b>{settings.subscription_days}</b>\n"
-        f"Provider token: <code>{mask_provider_token(settings.provider_token)}</code>\n"
-        f"Товар: {settings.product_title}"
-    )
 
 
 def build_invoice_payload(account: Account) -> str:
@@ -55,6 +43,8 @@ async def send_subscription_invoice(
 ) -> None:
     if not settings.is_enabled:
         raise ValueError("payments_disabled")
+    if settings.currency == "CRYPTO":
+        raise ValueError("use_crypto_flow")
     if settings.currency != "XTR" and not settings.provider_token:
         raise ValueError("provider_token_required")
 

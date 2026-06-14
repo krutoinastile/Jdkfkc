@@ -18,8 +18,8 @@ from app.database.repositories import (
 )
 from app.filters.admin import AdminFilter
 from app.keyboards.admin import admin_home_keyboard, admin_user_actions_keyboard, admin_users_keyboard
-from app.keyboards.payments import admin_payment_keyboard
-from app.services.payments import payment_settings_text
+from app.keyboards.payments import admin_crypto_asset_keyboard, admin_payment_keyboard
+from app.services.crypto_payments import payment_settings_text
 from app.states.admin import AdminPaymentSettings
 from app.utils.text import subscription_status_text
 
@@ -86,18 +86,71 @@ async def admin_payments_toggle(callback: CallbackQuery, session: AsyncSession) 
         )
 
 
-@router.callback_query(F.data == "admin:payments:currency:toggle")
-async def admin_payments_currency_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
+@router.callback_query(F.data == "admin:payments:method:next")
+async def admin_payments_method_next(callback: CallbackQuery, session: AsyncSession) -> None:
     payment_settings = await get_payment_settings(session)
-    new_currency = "RUB" if payment_settings.currency == "XTR" else "XTR"
-    new_price = 29900 if new_currency == "RUB" else 100
+    cycle = {"XTR": "RUB", "RUB": "CRYPTO", "CRYPTO": "XTR"}
+    new_currency = cycle.get(payment_settings.currency, "XTR")
+    updates: dict[str, object] = {"currency": new_currency}
+    if new_currency == "RUB":
+        updates["price_amount"] = 29900
+    elif new_currency == "XTR":
+        updates["price_amount"] = 100
+    payment_settings = await update_payment_settings(session, **updates)
+    await callback.answer(f"Способ: {new_currency}")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            payment_settings_text(payment_settings),
+            reply_markup=admin_payment_keyboard(payment_settings),
+        )
+
+
+@router.callback_query(F.data == "admin:payments:crypto:testnet")
+async def admin_payments_crypto_testnet(callback: CallbackQuery, session: AsyncSession) -> None:
+    payment_settings = await get_payment_settings(session)
     payment_settings = await update_payment_settings(
         session,
-        currency=new_currency,
-        price_amount=new_price,
-        provider_token=None if new_currency == "XTR" else payment_settings.provider_token,
+        crypto_testnet=not payment_settings.crypto_testnet,
     )
-    await callback.answer(f"Валюта: {new_currency}")
+    await callback.answer("Testnet переключён.")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            payment_settings_text(payment_settings),
+            reply_markup=admin_payment_keyboard(payment_settings),
+        )
+
+
+@router.callback_query(F.data == "admin:payments:edit:crypto_token")
+async def admin_payments_edit_crypto_token(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await state.set_state(AdminPaymentSettings.edit_crypto_token)
+    if isinstance(callback.message, Message):
+        await callback.message.answer(
+            "Отправьте <b>Crypto Pay API token</b> из @CryptoBot или @CryptoTestnetBot.\n\n"
+            "Получить: Crypto Bot → Crypto Pay → Create App.\n"
+            "Для отмены: /cancel"
+        )
+
+
+@router.callback_query(F.data == "admin:payments:edit:crypto_asset")
+async def admin_payments_edit_crypto_asset(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if not isinstance(callback.message, Message):
+        return
+    payment_settings = await get_payment_settings(session)
+    await callback.message.answer(
+        "Выберите криптовалюту для оплаты:",
+        reply_markup=admin_crypto_asset_keyboard(payment_settings.crypto_asset),
+    )
+
+
+@router.callback_query(F.data.regexp(r"^admin:payments:asset:[A-Z0-9]+$"))
+async def admin_payments_set_asset(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    asset = callback.data.rsplit(":", maxsplit=1)[-1]
+    payment_settings = await update_payment_settings(session, crypto_asset=asset)
+    await callback.answer(f"Монета: {asset}")
     if isinstance(callback.message, Message):
         await callback.message.edit_text(
             payment_settings_text(payment_settings),
@@ -123,11 +176,12 @@ async def admin_payments_edit_price(callback: CallbackQuery, state: FSMContext, 
     await callback.answer()
     await state.set_state(AdminPaymentSettings.edit_price)
     if isinstance(callback.message, Message):
-        hint = (
-            "количество Stars (например: 100)"
-            if payment_settings.currency == "XTR"
-            else "сумму в рублях (например: 299 или 299.50)"
-        )
+        if payment_settings.currency == "CRYPTO":
+            hint = f"сумму в {payment_settings.crypto_asset} (например: 5 или 5.50)"
+        elif payment_settings.currency == "XTR":
+            hint = "количество Stars (например: 100)"
+        else:
+            hint = "сумму в рублях (например: 299 или 299.50)"
         await callback.message.answer(
             f"Отправьте новую цену — {hint}.\n\nДля отмены: /cancel"
         )
@@ -169,6 +223,21 @@ async def admin_save_provider_token(message: Message, state: FSMContext, session
     )
 
 
+@router.message(StateFilter(AdminPaymentSettings.edit_crypto_token))
+async def admin_save_crypto_token(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if message.text is None:
+        await message.answer("Отправьте текстовое сообщение.")
+        return
+
+    token = message.text.strip()
+    payment_settings = await update_payment_settings(session, crypto_pay_api_token=token)
+    await state.clear()
+    await message.answer(
+        "Crypto Pay API token обновлён.\n\n" + payment_settings_text(payment_settings),
+        reply_markup=admin_payment_keyboard(payment_settings),
+    )
+
+
 @router.message(StateFilter(AdminPaymentSettings.edit_price))
 async def admin_save_price(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text is None:
@@ -179,19 +248,28 @@ async def admin_save_price(message: Message, state: FSMContext, session: AsyncSe
     raw = message.text.strip().replace(",", ".")
 
     try:
-        if payment_settings.currency == "XTR":
+        if payment_settings.currency == "CRYPTO":
+            amount = float(raw)
+            if amount <= 0:
+                raise ValueError
+            payment_settings = await update_payment_settings(
+                session,
+                crypto_amount=f"{amount:.2f}".rstrip("0").rstrip("."),
+            )
+        elif payment_settings.currency == "XTR":
             price = int(raw)
             if price <= 0:
                 raise ValueError
+            payment_settings = await update_payment_settings(session, price_amount=price)
         else:
             price = int(round(float(raw) * 100))
             if price <= 0:
                 raise ValueError
+            payment_settings = await update_payment_settings(session, price_amount=price)
     except ValueError:
         await message.answer("Некорректная цена. Попробуйте снова или /cancel")
         return
 
-    payment_settings = await update_payment_settings(session, price_amount=price)
     await state.clear()
     await message.answer(
         "Цена обновлена.\n\n" + payment_settings_text(payment_settings),

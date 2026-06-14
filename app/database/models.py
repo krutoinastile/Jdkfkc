@@ -172,6 +172,10 @@ class PaymentSettings(Base):
     price_amount: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     subscription_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    crypto_pay_api_token: Mapped[str | None] = mapped_column(Text)
+    crypto_asset: Mapped[str] = mapped_column(String(16), default="USDT", nullable=False)
+    crypto_amount: Mapped[str] = mapped_column(String(32), default="5.00", nullable=False)
+    crypto_testnet: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     product_title: Mapped[str] = mapped_column(String(255), default="Подписка", nullable=False)
     product_description: Mapped[str] = mapped_column(
         String(512),
@@ -200,6 +204,30 @@ class PaymentRecord(Base):
     currency: Mapped[str] = mapped_column(String(8), nullable=False)
     total_amount: Mapped[int] = mapped_column(Integer, nullable=False)
     subscription_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    account: Mapped[Account] = relationship()
+
+
+class CryptoInvoice(Base):
+    __tablename__ = "crypto_invoices"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    crypto_invoice_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
+    payload: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False, index=True)
+    asset: Mapped[str] = mapped_column(String(16), nullable=False)
+    amount: Mapped[str] = mapped_column(String(32), nullable=False)
+    pay_url: Mapped[str | None] = mapped_column(String(512))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

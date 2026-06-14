@@ -8,12 +8,16 @@ from app.database.repositories import (
     create_payment_record,
     extend_subscription,
     get_account_by_id,
-    get_account_by_tg_id,
     get_or_create_account,
     get_payment_by_charge_id,
     get_payment_settings,
 )
-from app.services.payments import format_price, send_subscription_invoice
+from app.keyboards.payments import crypto_pay_keyboard
+from app.services.crypto_payments import (
+    check_crypto_invoice_by_id,
+    create_crypto_subscription_invoice,
+)
+from app.services.payments import send_subscription_invoice
 from app.utils.text import subscription_status_text
 
 logger = logging.getLogger(__name__)
@@ -38,6 +42,31 @@ async def pay_subscription(callback: CallbackQuery, session: AsyncSession, bot: 
         await callback.answer("Оплата временно недоступна.", show_alert=True)
         return
 
+    if payment_settings.currency == "CRYPTO":
+        try:
+            invoice = await create_crypto_subscription_invoice(session, account, payment_settings)
+        except ValueError as exc:
+            if str(exc) == "crypto_token_required":
+                await callback.answer("Crypto Pay API не настроен.", show_alert=True)
+            else:
+                await callback.answer("Не удалось создать счёт.", show_alert=True)
+            return
+
+        if not invoice.pay_url:
+            await callback.answer("Не получена ссылка на оплату.", show_alert=True)
+            return
+
+        await callback.answer()
+        if isinstance(callback.message, Message):
+            await callback.message.answer(
+                "🪙 <b>Оплата через Crypto Pay</b>\n\n"
+                f"Сумма: <b>{invoice.amount} {invoice.asset}</b>\n"
+                f"Срок подписки: <b>{payment_settings.subscription_days} дн.</b>\n\n"
+                "Нажмите «Перейти к оплате», затем «Проверить оплату» после перевода.",
+                reply_markup=crypto_pay_keyboard(invoice.pay_url, invoice.crypto_invoice_id),
+            )
+        return
+
     try:
         await send_subscription_invoice(bot, callback.from_user.id, account, payment_settings)
         await callback.answer()
@@ -50,6 +79,48 @@ async def pay_subscription(callback: CallbackQuery, session: AsyncSession, bot: 
         else:
             await callback.answer("Не удалось создать счёт.", show_alert=True)
         logger.exception("Failed to send invoice")
+
+
+@router.callback_query(F.data.regexp(r"^pay:crypto:check:\d+$"))
+async def check_crypto_payment(callback: CallbackQuery, session: AsyncSession, bot: Bot) -> None:
+    if callback.from_user is None or callback.data is None:
+        return
+
+    crypto_invoice_id = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    result = await check_crypto_invoice_by_id(
+        session,
+        bot,
+        crypto_invoice_id=crypto_invoice_id,
+        user_tg_id=callback.from_user.id,
+    )
+
+    if result == "not_found":
+        await callback.answer("Счёт не найден.", show_alert=True)
+        return
+    if result == "forbidden":
+        await callback.answer("Этот счёт принадлежит другому пользователю.", show_alert=True)
+        return
+    if result == "already_paid":
+        await callback.answer("Оплата уже была зачислена.", show_alert=True)
+        return
+    if result == "paid":
+        payment_settings = await get_payment_settings(session)
+        await callback.answer("Оплата подтверждена!", show_alert=True)
+        if isinstance(callback.message, Message):
+            account = await get_or_create_account(
+                session,
+                callback.from_user.id,
+                callback.from_user.username,
+                callback.from_user.first_name,
+            )
+            await callback.message.answer(
+                "✅ <b>Крипто-оплата прошла успешно!</b>\n\n"
+                f"Подписка продлена на {payment_settings.subscription_days} дн.\n"
+                f"{subscription_status_text(account)}",
+            )
+        return
+
+    await callback.answer("Оплата ещё не поступила. Попробуйте через минуту.", show_alert=True)
 
 
 @router.pre_checkout_query()
