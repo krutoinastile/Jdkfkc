@@ -1,27 +1,37 @@
-import re
-
-from aiogram import Bot, F, Router
+from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
-from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
-from app.database.models import UserStatus
 from app.database.repositories import (
-    create_application,
-    get_or_create_user,
-    is_admin as is_user_admin,
-    mark_user_registered,
+    count_account_dialogs,
+    count_dialog_messages,
+    get_account_by_tg_id,
+    get_or_create_account,
+    is_admin,
+    list_account_dialogs,
+    list_dialog_messages,
+    toggle_notification,
 )
-from app.keyboards.user import cancel_keyboard, main_menu_keyboard, registered_keyboard
-from app.services.notifications import notify_admins_new_application
-from app.states.application import ApplicationForm
-from app.utils.text import STATUS_LABELS, welcome_text
+from app.keyboards.user import (
+    dialogs_keyboard,
+    history_keyboard,
+    main_menu_keyboard,
+    settings_keyboard,
+    subscription_keyboard,
+)
+from app.utils.message import format_dialog_label, format_message_preview, format_user_label
+from app.utils.text import (
+    connection_help_text,
+    settings_text,
+    subscription_status_text,
+    welcome_text,
+)
 
 router = Router(name="user")
 
-BINGX_UID_PATTERN = re.compile(r"^\d{4,32}$")
+PAGE_SIZE = 10
 
 
 @router.message(CommandStart())
@@ -29,169 +39,154 @@ async def start_command(message: Message, session: AsyncSession, settings: Setti
     if message.from_user is None:
         return
 
-    await get_or_create_user(session, message.from_user.id, message.from_user.username)
-    admin = await is_user_admin(session, message.from_user.id, settings.parsed_admin_ids)
-    await message.answer(welcome_text(), reply_markup=main_menu_keyboard(settings, is_admin=admin))
-
-
-@router.message(Command("cancel"))
-async def cancel_command(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await message.answer("Действие отменено.")
-
-
-@router.callback_query(F.data == "user:menu")
-async def show_menu(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
-    await callback.answer()
-    if isinstance(callback.message, Message):
-        admin = await is_user_admin(session, callback.from_user.id, settings.parsed_admin_ids)
-        await callback.message.answer(welcome_text(), reply_markup=main_menu_keyboard(settings, is_admin=admin))
-
-
-@router.callback_query(F.data == "user:registered")
-async def confirm_registered(callback: CallbackQuery, session: AsyncSession) -> None:
-    if callback.from_user is None:
-        return
-
-    user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
-    if user.status == UserStatus.BLOCKED.value:
-        await callback.answer("Ваш доступ заблокирован.", show_alert=True)
-        return
-
-    await mark_user_registered(session, user)
-    await callback.answer("Регистрация отмечена.")
-    if isinstance(callback.message, Message):
-        await callback.message.answer(
-            "Отлично. Теперь подайте заявку и приложите данные для проверки.",
-            reply_markup=registered_keyboard(),
-        )
-
-
-@router.callback_query(F.data == "user:status")
-async def status_callback(callback: CallbackQuery, session: AsyncSession) -> None:
-    if callback.from_user is None:
-        return
-
-    user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
-    status = STATUS_LABELS.get(user.status, user.status)
-    await callback.answer()
-    if isinstance(callback.message, Message):
-        await callback.message.answer(f"🔎 Ваш статус: <b>{status}</b>.")
-
-
-@router.callback_query(F.data == "user:support")
-async def support_callback(callback: CallbackQuery) -> None:
-    await callback.answer()
-    if isinstance(callback.message, Message):
-        await callback.message.answer("Напишите администратору проекта для получения поддержки.")
-
-
-@router.callback_query(F.data == "application:start")
-async def start_application(
-    callback: CallbackQuery,
-    state: FSMContext,
-    session: AsyncSession,
-) -> None:
-    if callback.from_user is None:
-        return
-
-    user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
-    if user.status == UserStatus.NEW.value:
-        await callback.answer("Сначала зарегистрируйтесь по реферальной ссылке.", show_alert=True)
-        return
-    if user.status == UserStatus.PENDING.value:
-        await callback.answer("Ваша заявка уже находится на проверке.", show_alert=True)
-        return
-    if user.status == UserStatus.APPROVED.value:
-        await callback.answer("Доступ уже одобрен.", show_alert=True)
-        return
-    if user.status == UserStatus.BLOCKED.value:
-        await callback.answer("Ваш доступ заблокирован.", show_alert=True)
-        return
-
-    await state.clear()
-    await state.set_state(ApplicationForm.waiting_uid)
-    await callback.answer()
-    if isinstance(callback.message, Message):
-        await callback.message.answer(
-            "Введите ваш <b>BingX UID</b>. UID должен содержать только цифры.",
-            reply_markup=cancel_keyboard(),
-        )
-
-
-@router.callback_query(F.data == "application:cancel")
-async def cancel_application(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
-    await callback.answer("Заявка отменена.")
-    if isinstance(callback.message, Message):
-        await callback.message.answer("Подача заявки отменена.")
-
-
-@router.message(ApplicationForm.waiting_uid)
-async def receive_uid(message: Message, state: FSMContext) -> None:
-    uid = (message.text or "").strip()
-    if not BINGX_UID_PATTERN.fullmatch(uid):
-        await message.answer("UID обязателен и должен содержать 4-32 цифры. Введите UID еще раз.")
-        return
-
-    await state.update_data(bingx_uid=uid)
-    await state.set_state(ApplicationForm.waiting_register_photo)
+    account = await get_or_create_account(
+        session,
+        message.from_user.id,
+        message.from_user.username,
+        message.from_user.first_name,
+    )
+    admin = await is_admin(session, message.from_user.id, settings.parsed_admin_ids)
     await message.answer(
-        "Пришлите <b>скрин регистрации BingX</b> одним изображением.",
-        reply_markup=cancel_keyboard(),
+        welcome_text(),
+        reply_markup=main_menu_keyboard(settings, is_admin=admin),
+    )
+    if account.subscription_until is None and not account.trial_used:
+        await message.answer(
+            "После подключения бизнес-аккаунта вам будет доступен "
+            f"пробный период на {settings.trial_days} дн."
+        )
+
+
+@router.callback_query(F.data == "menu:home")
+async def menu_home(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await callback.answer()
+    if callback.from_user is None or not isinstance(callback.message, Message):
+        return
+    admin = await is_admin(session, callback.from_user.id, settings.parsed_admin_ids)
+    await callback.message.answer(
+        welcome_text(),
+        reply_markup=main_menu_keyboard(settings, is_admin=admin),
     )
 
 
-@router.message(ApplicationForm.waiting_register_photo, F.photo)
-async def receive_register_photo(message: Message, state: FSMContext) -> None:
-    if not message.photo:
-        await message.answer("Нужно отправить изображение.")
+@router.callback_query(F.data == "menu:connect")
+async def menu_connect(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if isinstance(callback.message, Message):
+        await callback.message.answer(connection_help_text())
+
+
+@router.callback_query(F.data == "menu:subscription")
+async def menu_subscription(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await callback.answer()
+    if callback.from_user is None or not isinstance(callback.message, Message):
+        return
+    account = await get_or_create_account(
+        session,
+        callback.from_user.id,
+        callback.from_user.username,
+        callback.from_user.first_name,
+    )
+    text = (
+        "<b>Подписка</b>\n\n"
+        f"{subscription_status_text(account)}\n\n"
+        f"{settings.subscription_price_text}"
+    )
+    await callback.message.answer(text, reply_markup=subscription_keyboard(settings))
+
+
+@router.callback_query(F.data == "menu:settings")
+async def menu_settings(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if callback.from_user is None or not isinstance(callback.message, Message):
+        return
+    account = await get_or_create_account(
+        session,
+        callback.from_user.id,
+        callback.from_user.username,
+        callback.from_user.first_name,
+    )
+    await callback.message.answer(settings_text(account), reply_markup=settings_keyboard(account))
+
+
+@router.callback_query(F.data.startswith("settings:toggle:"))
+async def toggle_settings(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.from_user is None or callback.data is None:
+        return
+    field = callback.data.split(":")[-1]
+    if field not in {"notify_new", "notify_edit", "notify_delete"}:
+        await callback.answer("Неизвестная настройка.", show_alert=True)
         return
 
-    await state.update_data(register_photo=message.photo[-1].file_id)
-    await state.set_state(ApplicationForm.waiting_deposit_photo)
-    await message.answer(
-        "Теперь пришлите <b>скрин пополнения баланса BingX</b> одним изображением.",
-        reply_markup=cancel_keyboard(),
+    account = await get_or_create_account(
+        session,
+        callback.from_user.id,
+        callback.from_user.username,
+        callback.from_user.first_name,
+    )
+    account = await toggle_notification(session, account, field)
+    await callback.answer("Настройка обновлена.")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(settings_text(account), reply_markup=settings_keyboard(account))
+
+
+@router.callback_query(F.data.regexp(r"^menu:dialogs:\d+$"))
+async def menu_dialogs(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await callback.answer()
+    if callback.from_user is None or callback.data is None or not isinstance(callback.message, Message):
+        return
+
+    page = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    account = await get_or_create_account(
+        session,
+        callback.from_user.id,
+        callback.from_user.username,
+        callback.from_user.first_name,
+    )
+    total = await count_account_dialogs(session, account.id)
+    dialogs = await list_account_dialogs(session, account.id, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+    if not dialogs:
+        await callback.message.answer(
+            "Диалогов пока нет. Подключите бота к Telegram Business и дождитесь входящих сообщений.",
+            reply_markup=main_menu_keyboard(settings),
+        )
+        return
+
+    await callback.message.answer(
+        f"📂 <b>Диалоги</b> ({total})",
+        reply_markup=dialogs_keyboard(dialogs, page, total, PAGE_SIZE),
     )
 
 
-@router.message(ApplicationForm.waiting_register_photo)
-async def reject_non_photo_registration(message: Message) -> None:
-    await message.answer("Скрин регистрации обязателен. Отправьте именно изображение.")
-
-
-@router.message(ApplicationForm.waiting_deposit_photo, F.photo)
-async def receive_deposit_photo(
-    message: Message,
-    state: FSMContext,
-    session: AsyncSession,
-    settings: Settings,
-    bot: Bot,
-) -> None:
-    if message.from_user is None or not message.photo:
+@router.callback_query(F.data.regexp(r"^history:dialog:\d+:\d+$"))
+async def dialog_history(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if callback.data is None or not isinstance(callback.message, Message):
         return
 
-    data = await state.get_data()
-    user = await get_or_create_user(session, message.from_user.id, message.from_user.username)
-    try:
-        application = await create_application(
-            session=session,
-            user=user,
-            bingx_uid=str(data["bingx_uid"]),
-            register_photo=str(data["register_photo"]),
-            deposit_photo=message.photo[-1].file_id,
-        )
-    except ValueError:
-        await state.clear()
-        await message.answer("У вас уже есть активная заявка или доступ заблокирован.")
+    _, _, dialog_id_raw, page_raw = callback.data.split(":")
+    dialog_id = int(dialog_id_raw)
+    page = int(page_raw)
+
+    total = await count_dialog_messages(session, dialog_id)
+    messages = await list_dialog_messages(session, dialog_id, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+    if not messages:
+        await callback.message.answer("В этом диалоге пока нет сохранённых сообщений.")
         return
 
-    await state.clear()
-    await message.answer("📩 Заявка принята и передана администратору на проверку.")
-    await notify_admins_new_application(bot, session, settings, application)
+    lines: list[str] = ["📜 <b>История сообщений</b>\n"]
+    for stored in reversed(messages):
+        sender = format_user_label(stored.from_username, stored.from_first_name, stored.from_user_id)
+        preview = format_message_preview(stored.text, stored.caption, stored.content_type)
+        status = " 🗑" if stored.is_deleted else ""
+        lines.append(f"• {sender}{status}: {preview}")
+
+    await callback.message.answer(
+        "\n".join(lines),
+        reply_markup=history_keyboard(dialog_id, page, total, PAGE_SIZE),
+    )
 
 
-@router.message(ApplicationForm.waiting_deposit_photo)
-async def reject_non_photo_deposit(message: Message) -> None:
-    await message.answer("Скрин пополнения обязателен. Отправьте именно изображение.")
+@router.message(Command("help"))
+async def help_command(message: Message) -> None:
+    await message.answer(connection_help_text())

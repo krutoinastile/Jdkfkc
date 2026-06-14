@@ -1,29 +1,48 @@
-from aiogram.types import InlineKeyboardMarkup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from app.database.models import Application
+from app.database.models import Account
 
 
-def applications_keyboard(applications: list[Application]) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    for application in applications:
-        user = application.user
-        username = f"@{user.username}" if user.username else str(user.tg_id)
-        builder.button(
-            text=f"#{application.id} | {username} | UID {user.bingx_uid or '-'}",
-            callback_data=f"admin:application:{application.id}:open",
+def admin_home_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users:0")],
+            [InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats")],
+            [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
+        ]
+    )
+
+
+def admin_users_keyboard(accounts: list[Account], page: int, total: int, page_size: int = 10) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for account in accounts:
+        label = account.username or account.first_name or str(account.tg_id)
+        rows.append(
+            [InlineKeyboardButton(text=f"👤 {label}", callback_data=f"admin:user:{account.tg_id}")]
         )
-    builder.button(text="🔄 Обновить", callback_data="admin:applications:refresh")
-    builder.adjust(1)
-    return builder.as_markup()
+
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"admin:users:{page - 1}"))
+    if (page + 1) * page_size < total:
+        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"admin:users:{page + 1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="◀️ Админ", callback_data="admin:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def decision_keyboard(application_id: int) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Одобрить", callback_data=f"admin:application:{application_id}:approve")
-    builder.button(text="❌ Отклонить", callback_data=f"admin:application:{application_id}:reject")
-    builder.button(text="📝 Запросить повторно", callback_data=f"admin:application:{application_id}:resubmit")
-    builder.button(text="🚫 Заблокировать", callback_data=f"admin:application:{application_id}:block")
-    builder.button(text="⬅️ К списку", callback_data="admin:applications:refresh")
-    builder.adjust(2, 1, 1, 1)
-    return builder.as_markup()
+def admin_user_actions_keyboard(tg_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="+7 дней", callback_data=f"admin:extend:{tg_id}:7"),
+                InlineKeyboardButton(text="+30 дней", callback_data=f"admin:extend:{tg_id}:30"),
+            ],
+            [
+                InlineKeyboardButton(text="Заблокировать", callback_data=f"admin:block:{tg_id}:1"),
+                InlineKeyboardButton(text="Разблокировать", callback_data=f"admin:block:{tg_id}:0"),
+            ],
+            [InlineKeyboardButton(text="◀️ К списку", callback_data="admin:users:0")],
+        ]
+    )

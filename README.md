@@ -1,52 +1,28 @@
-# BingX Telegram Access Bot
+# Business Chat Monitor
 
-Production-ready Telegram-бот на Python 3.12 и aiogram v3 для ручной проверки
-рефералов BingX и выдачи доступа в закрытый канал.
+Telegram-бот на Python 3.12 и aiogram v3 для мониторинга переписок через
+**Telegram Business Automation**. Сохраняет входящие сообщения, фиксирует
+удаления и правки, ведёт историю диалогов и отправляет уведомления владельцу.
 
 ## Возможности
 
-- `/start` с приветствием и inline-меню.
-- Реферальная ссылка BingX: `https://bingxdao.com/invite/X4EYPO/`.
-- FSM-сценарий заявки:
-  - BingX UID;
-  - скрин регистрации;
-  - скрин пополнения.
-- Запрет активных повторных заявок.
-- Админ-панель `/admin`:
-  - список заявок;
-  - просмотр UID, username, даты и фото;
-  - решения: одобрить, отклонить, запросить повторно, заблокировать.
-- Одноразовая invite-ссылка в канал на 24 часа с лимитом 1 вход.
-- SQLite через SQLAlchemy AsyncIO, с возможностью заменить URL на PostgreSQL.
-- `.env`, logging, rate limit, Docker, docker-compose, systemd, GitHub Actions.
+- Подключение через **Telegram Business → Чат-боты**.
+- Сохранение всех входящих business-сообщений (текст и медиа).
+- Уведомления об удалённых сообщениях с сохранённой копией.
+- Уведомления об изменённых сообщениях (было / стало).
+- История диалогов с постраничным просмотром.
+- Настройка уведомлений: новые / правки / удаления.
+- Пробный период и подписка (продление через админ-панель).
+- Админ-панель: пользователи, статистика, продление и блокировка.
+- Docker, docker-compose, systemd, GitHub Actions.
 
-## Структура проекта
+## Требования
 
-```text
-app/
-  database/      SQLAlchemy models, session, repositories
-  filters/       admin access filter
-  handlers/      user and admin aiogram routers
-  keyboards/     inline keyboards
-  middlewares/   DB session and throttling
-  services/      invite links, notifications, scheduler
-  states/        FSM states
-  utils/         text formatting helpers
-  main.py        application entrypoint
-systemd/
-  bingxbot.service
-.github/workflows/
-  deploy.yml
-```
+- Telegram Premium и бизнес-аккаунт у владельца.
+- Бот с токеном от [@BotFather](https://t.me/BotFather).
+- VPS с Docker (рекомендуется Ubuntu 22.04+).
 
-## Подготовка Telegram
-
-1. Создайте бота через [@BotFather](https://t.me/BotFather) и получите токен.
-2. Добавьте бота администратором в канал `@anomalniypnl`.
-3. Выдайте боту право создавать пригласительные ссылки.
-4. Узнайте Telegram ID администраторов и добавьте их в `ADMIN_IDS`.
-
-## Локальный запуск
+## Быстрый старт
 
 ```bash
 cp .env.example .env
@@ -55,17 +31,14 @@ cp .env.example .env
 Заполните `.env`:
 
 ```env
-BOT_TOKEN=123456789:replace-with-telegram-bot-token
-ADMIN_IDS=123456789,987654321
-CHANNEL_ID=@anomalniypnl
-DATABASE_URL=sqlite+aiosqlite:///./data/bingxbot.db
-BINGX_REF_LINK=https://bingxdao.com/invite/X4EYPO/
-SUPPORT_URL=https://t.me/your_support_username
-RATE_LIMIT_SECONDS=1.0
-LOG_LEVEL=INFO
+BOT_TOKEN=123456789:your-token
+ADMIN_IDS=123456789
+DATABASE_URL=sqlite+aiosqlite:///./data/biztrace.db
+SUPPORT_URL=https://t.me/your_support
+TRIAL_DAYS=3
 ```
 
-Запуск без Docker:
+Локальный запуск:
 
 ```bash
 python -m venv .venv
@@ -74,69 +47,71 @@ pip install -r requirements.txt
 python -m app.main
 ```
 
-## Docker
+Docker:
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 docker compose logs -f
 ```
 
-Остановка:
+## Подключение бизнес-аккаунта
+
+1. Откройте бота и нажмите **Подключение**.
+2. В Telegram: **Настройки → Telegram Business → Чат-боты**.
+3. Добавьте бота и выдайте права на чтение сообщений.
+4. После подключения бот начнёт сохранять переписки с клиентами.
+
+## Деплой на VPS
 
 ```bash
-docker compose down
+chmod +x scripts/deploy_vps.sh
+DEPLOY_PATH=/opt/biztrace ./scripts/deploy_vps.sh
 ```
 
-SQLite-файл хранится в `./data`.
-
-## systemd
-
-Скопируйте проект на сервер, например в `/opt/bingxbot`, заполните `.env`, затем:
+Или вручную:
 
 ```bash
-sudo cp systemd/bingxbot.service /etc/systemd/system/bingxbot.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now bingxbot
-sudo systemctl status bingxbot
+git clone https://github.com/krutoinastile/jdkfkc.git /opt/biztrace
+cd /opt/biztrace
+git checkout cursor/business-chat-monitor-bde0
+cp .env.example .env
+# отредактируйте .env
+docker compose up -d --build
 ```
 
-Логи:
+## GitHub Actions
 
-```bash
-journalctl -u bingxbot -f
+Secrets:
+
+- `DEPLOY_HOST` — IP сервера
+- `DEPLOY_USER` — SSH-пользователь (`root`)
+- `DEPLOY_PASSWORD` или `DEPLOY_SSH_KEY` — доступ
+- `DEPLOY_PATH` — `/opt/biztrace`
+- `DEPLOY_PORT` — SSH-порт (по умолчанию 22)
+
+## Админ-команды
+
+- `/admin` — панель управления
+- Продление подписки: +7 / +30 дней
+- Блокировка / разблокировка пользователей
+
+## Структура
+
+```text
+app/
+  handlers/     user, business, admin
+  database/     models, repositories
+  services/     notifications
+  keyboards/    inline menus
+  utils/        formatting helpers
+scripts/
+  deploy_vps.sh
+systemd/
+  biztrace.service
 ```
-
-## GitHub Actions deploy
-
-Workflow `.github/workflows/deploy.yml` деплоит проект по SSH и запускает:
-
-```bash
-docker compose up -d --build --remove-orphans
-```
-
-Добавьте в GitHub Secrets:
-
-- `DEPLOY_HOST` - IP или домен сервера;
-- `DEPLOY_USER` - SSH-пользователь;
-- `DEPLOY_SSH_KEY` - приватный SSH-ключ для деплоя;
-- `DEPLOY_PORT` - SSH-порт, если отличается от `22`;
-- `DEPLOY_PATH` - путь к проекту на сервере, например `/opt/bingxbot`.
-
-На сервере в `DEPLOY_PATH` должен находиться git checkout этого репозитория и файл `.env`.
 
 ## Безопасность
 
 - Не храните `BOT_TOKEN` в Git.
-- После ручной передачи паролей меняйте их и используйте SSH-ключи.
-- Для деплоя создайте отдельного пользователя с минимальными правами.
-- Бот проверяет обязательность UID и изображений.
-- In-memory rate limit защищает от частого спама командами и callback-кнопками.
-
-## Замена SQLite на PostgreSQL
-
-Код использует SQLAlchemy AsyncIO. Для PostgreSQL достаточно добавить драйвер
-`asyncpg` в зависимости и заменить `DATABASE_URL`, например:
-
-```env
-DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/bingxbot
-```
+- Используйте SSH-ключи вместо пароля на проде.
+- Бот обрабатывает только business-сообщения подключённых аккаунтов.

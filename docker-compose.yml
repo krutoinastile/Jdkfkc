@@ -1,8 +1,8 @@
 services:
-  bingxbot:
+  biztrace:
     build:
       context: .
-    container_name: bingxbot
+    container_name: biztrace
     env_file:
       - .env
     volumes:

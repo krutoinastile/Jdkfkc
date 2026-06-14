@@ -1,34 +1,73 @@
-from aiogram.types import InlineKeyboardMarkup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.config import Settings
+from app.database.models import Account
 
 
-def main_menu_keyboard(settings: Settings, is_admin: bool = False) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🚀 Зарегистрироваться в BingX", url=settings.bingx_ref_link)
-    builder.button(text="✅ Я зарегистрировался", callback_data="user:registered")
-    builder.button(text="📩 Подать заявку", callback_data="application:start")
-    builder.button(text="🔎 Проверить статус", callback_data="user:status")
+def main_menu_keyboard(settings: Settings, *, is_admin: bool = False) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="📂 Мои диалоги", callback_data="menu:dialogs:0")],
+        [InlineKeyboardButton(text="🔗 Подключение", callback_data="menu:connect")],
+        [InlineKeyboardButton(text="💳 Подписка", callback_data="menu:subscription")],
+        [InlineKeyboardButton(text="🔔 Уведомления", callback_data="menu:settings")],
+    ]
     if settings.support_url:
-        builder.button(text="💬 Поддержка", url=settings.support_url)
-    else:
-        builder.button(text="💬 Поддержка", callback_data="user:support")
+        rows.append([InlineKeyboardButton(text="🆘 Поддержка", url=settings.support_url)])
     if is_admin:
-        builder.button(text="🛠 Админ-панель", callback_data="admin:applications:refresh")
-    builder.adjust(1)
-    return builder.as_markup()
+        rows.append([InlineKeyboardButton(text="🛠 Админ-панель", callback_data="admin:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def registered_keyboard() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(text="📩 Подать заявку", callback_data="application:start")
-    builder.button(text="🏠 Главное меню", callback_data="user:menu")
-    builder.adjust(1)
-    return builder.as_markup()
+def settings_keyboard(account: Account) -> InlineKeyboardMarkup:
+    def label(name: str, enabled: bool) -> str:
+        return f"{name}: {'✅' if enabled else '❌'}"
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=label("Новые", account.notify_new), callback_data="settings:toggle:notify_new")],
+            [InlineKeyboardButton(text=label("Изменения", account.notify_edit), callback_data="settings:toggle:notify_edit")],
+            [InlineKeyboardButton(text=label("Удаления", account.notify_delete), callback_data="settings:toggle:notify_delete")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:home")],
+        ]
+    )
 
 
-def cancel_keyboard() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(text="❌ Отменить", callback_data="application:cancel")
-    return builder.as_markup()
+def dialogs_keyboard(dialogs: list, page: int, total: int, page_size: int = 10) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for dialog in dialogs:
+        title = dialog.title or dialog.username or f"Чат {dialog.chat_id}"
+        if len(title) > 40:
+            title = title[:37] + "..."
+        rows.append(
+            [InlineKeyboardButton(text=f"💬 {title}", callback_data=f"history:dialog:{dialog.id}:0")]
+        )
+
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"menu:dialogs:{page - 1}"))
+    if (page + 1) * page_size < total:
+        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"menu:dialogs:{page + 1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def history_keyboard(dialog_id: int, page: int, total: int, page_size: int = 10) -> InlineKeyboardMarkup:
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"history:dialog:{dialog_id}:{page - 1}"))
+    if (page + 1) * page_size < total:
+        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"history:dialog:{dialog_id}:{page + 1}"))
+    rows: list[list[InlineKeyboardButton]] = []
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="◀️ К диалогам", callback_data="menu:dialogs:0")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def subscription_keyboard(settings: Settings) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")]]
+    if settings.support_url:
+        rows.insert(0, [InlineKeyboardButton(text="💬 Продлить через поддержку", url=settings.support_url)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
