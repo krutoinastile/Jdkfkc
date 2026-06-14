@@ -7,6 +7,7 @@ def admin_home_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users:0")],
+            [InlineKeyboardButton(text="💳 Оплата", callback_data="admin:payments")],
             [InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats")],
             [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
         ]

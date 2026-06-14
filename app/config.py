@@ -25,9 +25,16 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
     trial_days: int = Field(default=3, validation_alias="TRIAL_DAYS")
     subscription_price_text: str = Field(
-        default="Свяжитесь с поддержкой для продления подписки.",
+        default="Оплатите подписку в разделе «Подписка».",
         validation_alias="SUBSCRIPTION_PRICE_TEXT",
     )
+    default_payment_provider_token: str | None = Field(
+        default=None,
+        validation_alias="PAYMENT_PROVIDER_TOKEN",
+    )
+    default_payment_price: int = Field(default=100, validation_alias="PAYMENT_PRICE")
+    default_payment_currency: str = Field(default="XTR", validation_alias="PAYMENT_CURRENCY")
+    default_payment_days: int = Field(default=30, validation_alias="PAYMENT_SUBSCRIPTION_DAYS")
 
     @property
     def parsed_admin_ids(self) -> tuple[int, ...]:

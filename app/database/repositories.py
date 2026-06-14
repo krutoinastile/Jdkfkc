@@ -11,6 +11,8 @@ from app.database.models import (
     BusinessConnection,
     Dialog,
     MessageEdit,
+    PaymentRecord,
+    PaymentSettings,
     StoredMessage,
 )
 
@@ -387,3 +389,61 @@ async def is_admin(session: AsyncSession, tg_id: int, env_admin_ids: Iterable[in
         return True
     result = await session.execute(select(Admin).where(Admin.tg_id == tg_id))
     return result.scalar_one_or_none() is not None
+
+
+async def get_payment_settings(session: AsyncSession) -> PaymentSettings:
+    result = await session.execute(select(PaymentSettings).where(PaymentSettings.id == 1))
+    settings = result.scalar_one_or_none()
+    if settings is None:
+        settings = PaymentSettings(id=1)
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
+    return settings
+
+
+async def update_payment_settings(session: AsyncSession, **fields: object) -> PaymentSettings:
+    settings = await get_payment_settings(session)
+    for key, value in fields.items():
+        if hasattr(settings, key):
+            setattr(settings, key, value)
+    await session.commit()
+    await session.refresh(settings)
+    return settings
+
+
+async def get_payment_by_charge_id(session: AsyncSession, charge_id: str) -> PaymentRecord | None:
+    result = await session.execute(
+        select(PaymentRecord).where(PaymentRecord.telegram_payment_charge_id == charge_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_payment_record(
+    session: AsyncSession,
+    *,
+    account_id: int,
+    telegram_payment_charge_id: str,
+    payload: str,
+    currency: str,
+    total_amount: int,
+    subscription_days: int,
+) -> PaymentRecord:
+    record = PaymentRecord(
+        account_id=account_id,
+        telegram_payment_charge_id=telegram_payment_charge_id,
+        payload=payload,
+        currency=currency,
+        total_amount=total_amount,
+        subscription_days=subscription_days,
+    )
+    session.add(record)
+    await session.commit()
+    await session.refresh(record)
+    return record
+
+
+async def get_account_by_id(session: AsyncSession, account_id: int) -> Account | None:
+    result = await session.execute(select(Account).where(Account.id == account_id))
+    return result.scalar_one_or_none()
+

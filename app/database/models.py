@@ -159,3 +159,51 @@ class MessageEdit(Base):
     )
 
     message: Mapped[StoredMessage] = relationship(back_populates="edits")
+
+
+class PaymentSettings(Base):
+    """Singleton payment configuration (row id=1)."""
+
+    __tablename__ = "payment_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider_token: Mapped[str | None] = mapped_column(Text)
+    currency: Mapped[str] = mapped_column(String(8), default="XTR", nullable=False)
+    price_amount: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    subscription_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    product_title: Mapped[str] = mapped_column(String(255), default="Подписка", nullable=False)
+    product_description: Mapped[str] = mapped_column(
+        String(512),
+        default="Доступ к мониторингу бизнес-переписок",
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class PaymentRecord(Base):
+    __tablename__ = "payment_records"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    telegram_payment_charge_id: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    payload: Mapped[str] = mapped_column(String(255), nullable=False)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False)
+    total_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    subscription_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    account: Mapped[Account] = relationship()

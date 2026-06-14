@@ -9,17 +9,19 @@ from app.database.repositories import (
     count_dialog_messages,
     get_account_by_tg_id,
     get_or_create_account,
+    get_payment_settings,
     is_admin,
     list_account_dialogs,
     list_dialog_messages,
     toggle_notification,
 )
+from app.services.payments import format_price
+from app.keyboards.payments import subscription_keyboard
 from app.keyboards.user import (
     dialogs_keyboard,
     history_keyboard,
     main_menu_keyboard,
     settings_keyboard,
-    subscription_keyboard,
 )
 from app.utils.message import format_dialog_label, format_message_preview, format_user_label
 from app.utils.text import (
@@ -87,12 +89,17 @@ async def menu_subscription(callback: CallbackQuery, session: AsyncSession, sett
         callback.from_user.username,
         callback.from_user.first_name,
     )
+    payment_settings = await get_payment_settings(session)
+    price_line = ""
+    if payment_settings.is_enabled:
+        price_line = f"\nСтоимость: <b>{format_price(payment_settings)}</b> / {payment_settings.subscription_days} дн."
     text = (
         "<b>Подписка</b>\n\n"
-        f"{subscription_status_text(account)}\n\n"
+        f"{subscription_status_text(account)}"
+        f"{price_line}\n\n"
         f"{settings.subscription_price_text}"
     )
-    await callback.message.answer(text, reply_markup=subscription_keyboard(settings))
+    await callback.message.answer(text, reply_markup=subscription_keyboard(payment_settings))
 
 
 @router.callback_query(F.data == "menu:settings")

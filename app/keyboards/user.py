@@ -65,9 +65,3 @@ def history_keyboard(dialog_id: int, page: int, total: int, page_size: int = 10)
     rows.append([InlineKeyboardButton(text="◀️ К диалогам", callback_data="menu:dialogs:0")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-
-def subscription_keyboard(settings: Settings) -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")]]
-    if settings.support_url:
-        rows.insert(0, [InlineKeyboardButton(text="💬 Продлить через поддержку", url=settings.support_url)])
-    return InlineKeyboardMarkup(inline_keyboard=rows)

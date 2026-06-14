@@ -11,6 +11,7 @@ from app.database.init_db import init_database
 from app.database.session import create_engine, create_session_pool
 from app.handlers.admin import router as admin_router
 from app.handlers.business import router as business_router
+from app.handlers.payments import router as payments_router
 from app.handlers.user import router as user_router
 from app.logging_config import setup_logging
 from app.middlewares.db import DbSessionMiddleware
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 BUSINESS_UPDATE_TYPES = [
     "message",
     "callback_query",
+    "pre_checkout_query",
     "business_connection",
     "business_message",
     "edited_business_message",
@@ -46,6 +48,7 @@ async def main() -> None:
     dispatcher.update.middleware(ThrottlingMiddleware(settings.rate_limit_seconds))
     dispatcher.update.middleware(DbSessionMiddleware(session_pool))
     dispatcher.include_router(business_router)
+    dispatcher.include_router(payments_router)
     dispatcher.include_router(admin_router)
     dispatcher.include_router(user_router)
 
