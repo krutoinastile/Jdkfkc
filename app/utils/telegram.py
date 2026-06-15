@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from aiogram.enums import ChatAction
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, Message
 
 from app.services.chart import render_chart
@@ -28,6 +29,7 @@ async def answer_with_chart(
     reply_markup: InlineKeyboardMarkup | None = None,
 ) -> None:
     try:
+        await message.bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_PHOTO)
         chart_bytes = await asyncio.to_thread(render_chart, candles, cfg, signal)
         photo = BufferedInputFile(chart_bytes, filename="btc_chart.png")
         await message.answer_photo(photo=photo, caption=caption, reply_markup=reply_markup)

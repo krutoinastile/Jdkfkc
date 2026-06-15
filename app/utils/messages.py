@@ -3,21 +3,37 @@
 from __future__ import annotations
 
 from app.database.models import Signal
-from app.utils.formatting import bullet_list, header, money, pnl, progress_bar, section, strength_bar, win_rate_bar
+from app.utils.formatting import (
+    badge,
+    bullet_list,
+    footer,
+    header,
+    kv,
+    money,
+    pnl,
+    pnl_colored,
+    progress_bar,
+    rsi_bar,
+    section,
+    signal_status,
+    strength_bar,
+    win_rate_bar,
+)
 
 
 def welcome_text() -> str:
     return (
-        f"{header('₿ BTC Trading Bot', 'Аналитика и сигналы в реальном времени')}\n\n"
+        f"{header('₿ BTC Trading Bot', 'Аналитика и сигналы в реальном времени')}\n"
+        f"{section('Возможности')}\n"
         f"{bullet_list([
-            'Точки входа LONG / SHORT',
-            'Графики с EMA на свечах',
-            'Fear & Greed + Funding Rate',
-            'Ликвидации с Binance Futures',
-            'Калькулятор прибыли и бэктест',
-            'Статистика и история сделок',
+            '📊 Сигналы LONG / SHORT с графиками',
+            '📈 EMA · RSI · MACD · ATR стратегия',
+            '😱 Fear & Greed · Funding · Open Interest',
+            '🔥 Ликвидации Binance Futures',
+            '💰 Калькулятор прибыли · Бэктест',
         ])}\n\n"
         f"<i>⚠️ Не финансовый совет. Торгуйте ответственно.</i>"
+        f"{footer()}"
     )
 
 
@@ -43,27 +59,26 @@ def help_text() -> str:
             '/calc — калькулятор прибыли',
             '/admin — панель админа',
         ])}"
+        f"{footer()}"
     )
 
 
 def _format_fear_greed(fng: dict | None) -> str:
     if fng is None:
-        return "  Fear & Greed: <i>недоступен</i>"
-    bar = progress_bar(fng["value"], 100, 10)
-    return f"  {fng['emoji']} Fear & Greed: {bar} <b>{fng['value']}</b> — {fng['label']}"
+        return kv("😱 Fear & Greed", "<i>недоступен</i>")
+    bar = progress_bar(fng["value"], 100, 8)
+    return kv(f"{fng['emoji']} Fear & Greed", f"{bar}  <b>{fng['value']}</b> · {fng['label']}")
 
 
 def _format_funding(funding: dict | None) -> str:
     if funding is None:
-        return "  Funding: <i>недоступен</i>"
+        return kv("💸 Funding", "<i>недоступен</i>")
     sign = "+" if funding["rate_pct"] >= 0 else ""
-    next_line = ""
+    lines = [kv("💸 Funding", f"<b>{sign}{funding['rate_pct']:.4f}%</b> · {funding['source']}")]
+    lines.append(f"   {funding['bias']}")
     if funding.get("next_funding"):
-        next_line = f"\n  След. funding: <b>{funding['next_funding'].strftime('%d.%m %H:%M UTC')}</b>"
-    return (
-        f"  💸 Funding: <b>{sign}{funding['rate_pct']:.4f}%</b> ({funding['source']})\n"
-        f"  {funding['bias']}{next_line}"
-    )
+        lines.append(f"   ⏱ {funding['next_funding'].strftime('%d.%m %H:%M UTC')}")
+    return "\n".join(lines)
 
 
 def format_stats(stats: dict) -> str:
@@ -72,14 +87,15 @@ def format_stats(stats: dict) -> str:
     return (
         f"{header('📈 Статистика', f'{total} сигналов всего')}\n"
         f"{section('Результаты')}\n"
-        f"  ✅ Успешных: <b>{stats['wins']}</b>\n"
-        f"  ❌ Убыточных: <b>{stats['losses']}</b>\n"
-        f"  ⏱ Истекло: <b>{stats['expired']}</b>\n"
-        f"  🔄 Открытых: <b>{stats['open']}</b>\n"
+        f"{kv('✅ Успешных', f'<b>{stats['wins']}</b>')}\n"
+        f"{kv('❌ Убыточных', f'<b>{stats['losses']}</b>')}\n"
+        f"{kv('⏱ Истекло', f'<b>{stats['expired']}</b>')}\n"
+        f"{kv('🔄 Открытых', f'<b>{stats['open']}</b>')}\n"
         f"{section('Эффективность')}\n"
-        f"  Win Rate: {win_rate_bar(stats['win_rate'])}\n"
-        f"  Средний P&L: <b>{pnl(stats['avg_pnl'])}</b>\n"
-        f"  Закрыто сделок: <b>{total_closed}</b>"
+        f"{kv('Win Rate', win_rate_bar(stats['win_rate']))}\n"
+        f"{kv('Средний P&L', pnl_colored(stats['avg_pnl']))}\n"
+        f"{kv('Закрыто', f'<b>{total_closed}</b> сделок')}"
+        f"{footer()}"
     )
 
 
@@ -94,32 +110,34 @@ def format_market(
     return (
         f"{header('💹 BTC/USDT', f'Таймфрейм {timeframe}')}\n"
         f"{section('Цена')}\n"
-        f"  {money(snap['price'])}\n"
-        f"  Тренд: <b>{snap['trend']}</b>\n"
+        f"{kv('BTC', f'<b>{money(snap['price'])}</b>')}\n"
+        f"{kv('Тренд', f'<b>{snap['trend']}</b>')}\n"
         f"{section('Индикаторы')}\n"
-        f"  RSI(14): <b>{snap['rsi']}</b>\n"
-        f"  MACD: <b>{snap['macd']}</b> ({snap['macd_hist']})\n"
-        f"  Объём: <b>{snap['volume']}</b>\n"
+        f"{kv('RSI', rsi_bar(snap['rsi']))}\n"
+        f"{kv('MACD', f'<b>{snap['macd']}</b> ({snap['macd_hist']})')}\n"
+        f"{kv('Объём', f'<b>{snap['volume']}</b>')}\n"
         f"{section('EMA')}\n"
-        f"  EMA9:  {money(snap['ema_fast'])}\n"
-        f"  EMA21: {money(snap['ema_slow'])}\n"
-        f"  EMA55: {money(snap['ema_trend'])}\n"
+        f"{kv('EMA9', money(snap['ema_fast']))}\n"
+        f"{kv('EMA21', money(snap['ema_slow']))}\n"
+        f"{kv('EMA55', money(snap['ema_trend']))}\n"
         f"{section('Сентимент')}\n"
         f"{_format_fear_greed(fear_greed)}\n"
         f"{_format_funding(funding)}\n"
         f"{_format_derivatives(derivatives)}"
+        f"{footer()}"
     )
 
 
 def format_no_signal(snap: dict) -> str:
     return (
         f"{header('📊 Точка входа', 'Активного сигнала нет')}\n"
-        f"{section('Рынок сейчас')}\n"
-        f"  Цена: <b>{money(snap['price'])}</b>\n"
-        f"  Тренд: {snap['trend']}\n"
-        f"  MACD: {snap['macd']}\n"
-        f"  RSI: <b>{snap['rsi']}</b>\n\n"
-        f"<i>Уведомление придёт, когда стратегия найдёт сильный сигнал.</i>"
+        f"{section('Рынок')}\n"
+        f"{kv('Цена', f'<b>{money(snap['price'])}</b>')}\n"
+        f"{kv('Тренд', snap['trend'])}\n"
+        f"{kv('RSI', rsi_bar(snap['rsi']))}\n"
+        f"{kv('MACD', snap['macd'])}\n\n"
+        f"<i>🔔 Уведомление придёт при сильном сигнале.</i>"
+        f"{footer()}"
     )
 
 
@@ -132,27 +150,27 @@ def format_dashboard(
     funding: dict | None = None,
     derivatives: dict | None = None,
 ) -> str:
-    signal_state = "🟢 Есть активный сигнал" if has_open else "⚪ Ожидание входа"
     return (
         f"{header('🏠 Дашборд', 'Bitcoin Trading')}\n"
         f"{section('Рынок')}\n"
-        f"  BTC: <b>{money(snap['price'])}</b>  {snap['trend']}\n"
-        f"  RSI {snap['rsi']} · MACD {snap['macd']}\n"
+        f"{kv('BTC', f'<b>{money(snap['price'])}</b>  {snap['trend']}')}\n"
+        f"{kv('RSI', rsi_bar(snap['rsi']))}\n"
+        f"{kv('MACD', snap['macd'])}\n"
         f"{section('Сентимент')}\n"
         f"{_format_fear_greed(fear_greed)}\n"
         f"{_format_funding(funding)}\n"
         f"{_format_derivatives(derivatives)}\n"
         f"{section('Сигналы')}\n"
-        f"  {signal_state}\n"
-        f"  Win Rate: {win_rate_bar(stats['win_rate'])}\n"
-        f"  P&L: <b>{pnl(stats['avg_pnl'])}</b> · Открыто: <b>{stats['open']}</b>"
+        f"   {signal_status(has_open)}\n"
+        f"{kv('Win Rate', win_rate_bar(stats['win_rate']))}\n"
+        f"{kv('P&L', f'{pnl_colored(stats['avg_pnl'])} · Открыто <b>{stats['open']}</b>')}"
+        f"{footer()}"
     )
 
 
 def format_signal_card(signal: Signal, *, is_new: bool = False) -> str:
     is_long = signal.direction == "long"
-    emoji = "🟢" if is_long else "🔴"
-    action = "LONG · Покупка" if is_long else "SHORT · Продажа"
+    dir_badge = badge("LONG · Покупка", style="long") if is_long else badge("SHORT · Продажа", style="short")
     title = "🚨 Новый сигнал" if is_new else "📊 Активный сигнал"
     type_label = "Пересечение EMA" if signal.signal_type == "crossover" else "Откат к EMA"
     strength = getattr(signal, "strength", 0) or 0
@@ -166,18 +184,19 @@ def format_signal_card(signal: Signal, *, is_new: bool = False) -> str:
 
     return (
         f"{header(title, 'BTC/USDT · ' + signal.timeframe)}\n\n"
-        f"{emoji} <b>{action}</b>\n"
-        f"  Тип: {type_label}\n"
-        f"  {strength_bar(strength)}\n"
+        f"   {dir_badge} · {type_label}\n"
+        f"   {strength_bar(strength)}\n"
         f"{section('Уровни')}\n"
-        f"  💰 Вход:  <b>{money(signal.entry_price)}</b>\n"
-        f"  🛑 SL:    <b>{money(signal.stop_loss)}</b> (−{sl_pct:.2f}%)\n"
-        f"  🎯 TP:    <b>{money(signal.take_profit)}</b> (+{tp_pct:.2f}%)\n"
-        f"  📐 R:R    <b>1:{rr}</b>\n"
+        f"{kv('💰 Вход', f'<b>{money(signal.entry_price)}</b>')}\n"
+        f"{kv('🛑 SL', f'<b>{money(signal.stop_loss)}</b> (−{sl_pct:.2f}%)')}\n"
+        f"{kv('🎯 TP', f'<b>{money(signal.take_profit)}</b> (+{tp_pct:.2f}%)')}\n"
+        f"{kv('📐 R:R', f'<b>1:{rr}</b>')}\n"
         f"{section('Анализ')}\n"
-        f"  RSI {signal.rsi} · ATR {money(signal.atr)}\n"
-        f"  EMA9 {money(signal.ema_fast)} · EMA21 {money(signal.ema_slow)}\n\n"
+        f"{kv('RSI', str(signal.rsi))}\n"
+        f"{kv('ATR', money(signal.atr))}\n"
+        f"{kv('EMA', f'{money(signal.ema_fast)} / {money(signal.ema_slow)}')}\n\n"
         f"<i>{signal.reason}</i>"
+        f"{footer()}"
     )
 
 
@@ -259,12 +278,12 @@ def format_funding_alert(funding: dict) -> str:
 
 def _format_derivatives(deriv: dict | None) -> str:
     if deriv is None:
-        return "  OI / L/S: <i>недоступно</i>"
-    bar = progress_bar(deriv["long_pct"], 100, 10)
+        return kv("📊 OI / L/S", "<i>недоступно</i>")
+    bar = progress_bar(deriv["long_pct"], 100, 8)
     return (
-        f"  📊 OI: <b>{deriv['open_interest_fmt']}</b> ({deriv['source']})\n"
-        f"  L/S: {bar} <b>{deriv['long_pct']}%</b>L / <b>{deriv['short_pct']}%</b>S\n"
-        f"  {deriv['ls_bias']}"
+        f"{kv('📊 OI', f'<b>{deriv['open_interest_fmt']}</b> · {deriv['source']}')}\n"
+        f"   L/S {bar}  <b>{deriv['long_pct']}%</b>L / <b>{deriv['short_pct']}%</b>S\n"
+        f"   {deriv['ls_bias']}"
     )
 
 

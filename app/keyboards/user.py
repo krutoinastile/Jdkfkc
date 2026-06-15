@@ -5,7 +5,7 @@ from app.database.models import User
 
 def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text="🏠 Дашборд", callback_data="menu:dashboard")],
+        [InlineKeyboardButton(text="🏠  Дашборд", callback_data="menu:dashboard")],
         [
             InlineKeyboardButton(text="📊 Сигнал", callback_data="menu:signal"),
             InlineKeyboardButton(text="💹 Рынок", callback_data="menu:market"),
@@ -18,11 +18,13 @@ def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="💰 Калькулятор", callback_data="menu:calculator"),
             InlineKeyboardButton(text="🔬 Бэктест", callback_data="menu:backtest"),
         ],
-        [InlineKeyboardButton(text="🔔 Уведомления", callback_data="menu:settings")],
-        [InlineKeyboardButton(text="❓ Помощь", callback_data="menu:help")],
+        [
+            InlineKeyboardButton(text="🔔 Алерты", callback_data="menu:settings"),
+            InlineKeyboardButton(text="❓ Помощь", callback_data="menu:help"),
+        ],
     ]
     if is_admin:
-        rows.append([InlineKeyboardButton(text="🛠 Админ-панель", callback_data="admin:home")])
+        rows.append([InlineKeyboardButton(text="🛠  Админ-панель", callback_data="admin:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -41,14 +43,14 @@ def calculator_keyboard() -> InlineKeyboardMarkup:
     presets = [100, 500, 1000, 5000, 10000]
     rows = [
         [
-            InlineKeyboardButton(text=f"${p:,}", callback_data=f"calc:amount:{p}")
+            InlineKeyboardButton(text=f"💵 ${p:,}", callback_data=f"calc:amount:{p}")
             for p in presets[:3]
         ],
         [
-            InlineKeyboardButton(text=f"${p:,}", callback_data=f"calc:amount:{p}")
+            InlineKeyboardButton(text=f"💵 ${p:,}", callback_data=f"calc:amount:{p}")
             for p in presets[3:]
         ],
-        [InlineKeyboardButton(text="✏️ Своя сумма", callback_data="calc:custom")],
+        [InlineKeyboardButton(text="✏️  Своя сумма", callback_data="calc:custom")],
         [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -85,7 +87,7 @@ def settings_keyboard(user: User) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(
-                text=f"{onoff(user.notify_signals)} Сигналы входа",
+                text=f"{onoff(user.notify_signals)}  Сигналы входа",
                 callback_data="settings:toggle:notify_signals",
             )],
             [
@@ -99,7 +101,7 @@ def settings_keyboard(user: User) -> InlineKeyboardMarkup:
                 ),
             ],
             [InlineKeyboardButton(
-                text=f"{onoff(user.notify_funding)} Funding Rate",
+                text=f"{onoff(user.notify_funding)}  Funding Rate",
                 callback_data="settings:toggle:notify_funding",
             )],
             [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
@@ -108,21 +110,19 @@ def settings_keyboard(user: User) -> InlineKeyboardMarkup:
 
 
 def settings_text(user: User) -> str:
-    from app.utils.formatting import header, section
-
-    def state(on: bool) -> str:
-        return "🟢 Включено" if on else "⚫ Выключено"
+    from app.utils.formatting import badge, footer, header, section
 
     return (
-        f"{header('🔔 Уведомления', 'Нажмите кнопку для переключения')}\n"
+        f"{header('🔔 Уведомления', 'Нажмите для переключения')}\n"
         f"{section('Торговля')}\n"
-        f"  Сигналы входа — {state(user.notify_signals)}\n"
+        f"   {badge('Сигналы входа', style='on' if user.notify_signals else 'off')}\n"
         f"{section('Ликвидации')}\n"
-        f"  LONG позиции — {state(user.notify_liq_longs)}\n"
-        f"  SHORT позиции — {state(user.notify_liq_shorts)}\n"
+        f"   {badge('LONG позиции', style='on' if user.notify_liq_longs else 'off')}\n"
+        f"   {badge('SHORT позиции', style='on' if user.notify_liq_shorts else 'off')}\n"
         f"{section('Funding')}\n"
-        f"  Экстремальный rate — {state(user.notify_funding)}\n\n"
-        f"<i>Ликвидации — в реальном времени с Binance Futures</i>"
+        f"   {badge('Экстремальный rate', style='on' if user.notify_funding else 'off')}\n\n"
+        f"<i>Ликвидации — Binance Futures в реальном времени</i>"
+        f"{footer()}"
     )
 
 
@@ -135,9 +135,9 @@ def back_keyboard() -> InlineKeyboardMarkup:
 def history_keyboard(page: int, has_more: bool) -> InlineKeyboardMarkup:
     nav: list[InlineKeyboardButton] = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="◬ Назад", callback_data=f"menu:history:{page - 1}"))
+        nav.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"menu:history:{page - 1}"))
     if has_more:
-        nav.append(InlineKeyboardButton(text="Вперёд ⬭", callback_data=f"menu:history:{page + 1}"))
+        nav.append(InlineKeyboardButton(text="Вперёд ▶️", callback_data=f"menu:history:{page + 1}"))
     rows: list[list[InlineKeyboardButton]] = []
     if nav:
         rows.append(nav)
