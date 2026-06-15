@@ -30,16 +30,13 @@ PAGE_SIZE = 10
 
 def strategy_text(cfg) -> str:
     return (
-        "<b>⚙️ Настройки стратегии v2</b>\n\n"
-        f"Таймфрейм: <b>{cfg.timeframe}</b> | HTF: <b>{cfg.higher_tf}</b>\n"
-        f"EMA: {cfg.ema_fast}/{cfg.ema_slow}/{cfg.ema_trend}\n"
+        "<b>⚙️ Стратегия: BB Squeeze Breakout</b>\n\n"
+        f"Таймфрейм: <b>{cfg.timeframe}</b> (оптимизировано под 1h)\n"
         f"SL: <b>{cfg.atr_sl_mult}×ATR</b> | TP: <b>{cfg.atr_tp_mult}×ATR</b>\n"
-        f"Мин. сила сигнала: <b>{cfg.min_signal_strength}/100</b>\n"
+        f"Min ADX: <b>{cfg.min_adx}</b> · Сила: <b>{cfg.min_signal_strength}/100</b>\n"
         f"Плечо: <b>{cfg.leverage}x</b>\n"
         f"Лимит: <b>{cfg.max_signals_per_day}</b> сигн/день · пауза <b>{cfg.min_hours_between_signals:.0f}ч</b>\n\n"
-        f"MACD фильтр: {'✅' if cfg.use_macd_filter else '❌'}\n"
-        f"Объём фильтр: {'✅' if cfg.use_volume_filter else '❌'}\n"
-        f"HTF подтверждение: {'✅' if cfg.use_higher_tf else '❌'}\n"
+        f"🛡 Trailing SL: breakeven +1R · lock +0.5R +2R · trail 1 ATR +3R\n"
         f"Автоскан: {'✅' if cfg.scanning_enabled else '❌'}\n\n"
         f"<b>Ликвидации</b>\n"
         f"Мониторинг: {'✅' if cfg.liquidations_enabled else '❌'}\n"
@@ -47,7 +44,7 @@ def strategy_text(cfg) -> str:
         f"<b>Funding Rate</b>\n"
         f"Алерты: {'✅' if cfg.funding_alerts_enabled else '❌'}\n"
         f"Порог: <b>{cfg.min_funding_rate_pct:.2f}%</b>\n\n"
-        "<i>Стратегия: тренд EMA + пересечение/откат + MACD + объём + 4H</i>"
+        "<i>Сжатие Bollinger → пробой в сторону тренда EMA55</i>"
     )
 
 

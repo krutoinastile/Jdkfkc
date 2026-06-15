@@ -185,3 +185,36 @@ async def get_giveaway_stats(session: AsyncSession) -> dict | None:
         "giveaway": giveaway,
         "entries": await count_giveaway_entries(session, giveaway.id),
     }
+
+
+async def send_subscription_reminders(session: AsyncSession, bot: Bot) -> None:
+    """Notify users whose subscription expires within 3 days."""
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    now = _now()
+    window_end = now + timedelta(days=3)
+    result = await session.execute(
+        select(User).where(
+            User.subscription_until.is_not(None),
+            User.subscription_until > now,
+            User.subscription_until <= window_end,
+        )
+    )
+    users = list(result.scalars().all())
+    for user in users:
+        if user.subscription_until is None:
+            continue
+        days_left = max(0, (user.subscription_until - now).days)
+        until = user.subscription_until.strftime("%d.%m.%Y %H:%M UTC")
+        try:
+            await bot.send_message(
+                user.tg_id,
+                f"⏳ <b>Подписка скоро истекает</b>\n\n"
+                f"Осталось: <b>{days_left} дн.</b> (до {until})\n"
+                f"Продлите в разделе 💎 Подписка, чтобы не пропустить сигналы.",
+            )
+        except Exception:
+            logger.exception("Subscription reminder failed for %s", user.tg_id)
+

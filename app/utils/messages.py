@@ -29,7 +29,8 @@ def welcome_text() -> str:
         f"{bullet_list([
             '📊 Сигналы LONG / SHORT · плечо 20x',
             '⏱ до 2 сделок в день',
-            '📈 EMA · RSI · MACD · ATR стратегия',
+            '🎯 BB Squeeze · ADX · Bollinger',
+            '🛡 Trailing SL · breakeven',
             '😱 Fear & Greed · Funding · Open Interest',
             '🔥 Ликвидации Binance Futures',
             '💰 Калькулятор прибыли · Бэктест',
@@ -50,7 +51,7 @@ def help_text() -> str:
             'Рынок — цена, индикаторы + график',
             'Статистика — win rate и P&L',
             'Калькулятор — прибыль за период с выбранным капиталом',
-            'Бэктест — проверка на 30д / 90д / 6м / 1г',
+            'Бэктест — проверка за 30 дней (1h TF)',
             'История — прошлые сделки',
             'Уведомления — сигналы, ликвидации, funding',
         ])}\n"
@@ -155,13 +156,20 @@ def format_dashboard(
     fear_greed: dict | None = None,
     funding: dict | None = None,
     derivatives: dict | None = None,
+    open_trade_text: str | None = None,
 ) -> str:
+    open_section = ""
+    if open_trade_text:
+        open_section = f"{section('Открытая сделка')}\n{open_trade_text}\n"
+
     return (
         f"{header('🏠 Дашборд', 'Bitcoin Trading')}\n"
         f"{section('Рынок')}\n"
         f"{kv('BTC', f'<b>{money(snap['price'])}</b>  {snap['trend']}')}\n"
         f"{kv('RSI', rsi_bar(snap['rsi']))}\n"
+        f"{kv('BB', snap.get('bb', '—'))}\n"
         f"{kv('MACD', snap['macd'])}\n"
+        f"{open_section}"
         f"{section('Сентимент')}\n"
         f"{_format_fear_greed(fear_greed)}\n"
         f"{_format_funding(funding)}\n"
@@ -187,14 +195,16 @@ def _signal_type_label(signal_type: str) -> str:
     return labels.get(signal_type, signal_type.replace("_", " ").title())
 
 
-def format_signal_card(signal: Signal, *, is_new: bool = False) -> str:
+def format_signal_card(signal: Signal, *, is_new: bool = False, current_price: float | None = None) -> str:
+    from app.utils.trade_pnl import format_live_trade
+
     is_long = signal.direction == "long"
     dir_badge = badge("LONG · Покупка", style="long") if is_long else badge("SHORT · Продажа", style="short")
     title = "🚨 Новый сигнал" if is_new else "📊 Активный сигнал"
     type_label = _signal_type_label(signal.signal_type)
     strength = getattr(signal, "strength", 0) or 0
 
-    risk = abs(signal.entry_price - signal.stop_loss)
+    risk = abs(signal.entry_price - (signal.initial_stop_loss or signal.stop_loss))
     reward = abs(signal.take_profit - signal.entry_price)
     rr = round(reward / risk, 2) if risk > 0 else 0
 
@@ -203,6 +213,10 @@ def format_signal_card(signal: Signal, *, is_new: bool = False) -> str:
     lev = get_leverage(signal)
     sl_lev = leveraged_move(sl_pct, lev)
     tp_lev = leveraged_move(tp_pct, lev)
+
+    live_block = ""
+    if current_price is not None and signal.status == "open":
+        live_block = f"{section('Live')}\n{format_live_trade(signal, current_price)}\n"
 
     return (
         f"{header(title, f'BTC/USDT · {signal.timeframe} · {lev}x')}\n\n"
@@ -213,7 +227,7 @@ def format_signal_card(signal: Signal, *, is_new: bool = False) -> str:
         f"{kv('🛑 SL', f'<b>{money(signal.stop_loss)}</b> (−{sl_lev:.1f}% при {lev}x)')}\n"
         f"{kv('🎯 TP', f'<b>{money(signal.take_profit)}</b> (+{tp_lev:.1f}% при {lev}x)')}\n"
         f"{kv('📐 R:R', f'<b>1:{rr}</b>')}\n"
-        f"{kv('⚡ Плечо', f'<b>{lev}x</b>')}\n"
+        f"{live_block}"
         f"{section('Анализ')}\n"
         f"{kv('RSI', str(signal.rsi))}\n"
         f"{kv('ATR', money(signal.atr))}\n"

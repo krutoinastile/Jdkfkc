@@ -54,6 +54,7 @@ class Signal(Base):
     direction: Mapped[str] = mapped_column(String(8), nullable=False)
     entry_price: Mapped[float] = mapped_column(Float, nullable=False)
     stop_loss: Mapped[float] = mapped_column(Float, nullable=False)
+    initial_stop_loss: Mapped[float | None] = mapped_column(Float)
     take_profit: Mapped[float] = mapped_column(Float, nullable=False)
     rsi: Mapped[float] = mapped_column(Float, nullable=False)
     ema_fast: Mapped[float] = mapped_column(Float, nullable=False)

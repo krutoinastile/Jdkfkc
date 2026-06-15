@@ -147,7 +147,16 @@ async def can_open_new_signal(
     return True, "ok"
 
 
+async def update_signal_stop_loss(session: AsyncSession, signal: Signal, stop_loss: float) -> Signal:
+    signal.stop_loss = round(stop_loss, 2)
+    await session.commit()
+    await session.refresh(signal)
+    return signal
+
+
 async def create_signal(session: AsyncSession, **fields: object) -> Signal:
+    if "initial_stop_loss" not in fields and "stop_loss" in fields:
+        fields["initial_stop_loss"] = fields["stop_loss"]
     signal = Signal(**fields)
     session.add(signal)
     await session.commit()
@@ -295,7 +304,12 @@ async def get_statistics(session: AsyncSession) -> dict[str, float | int]:
     }
 
 
-async def expire_old_signals(session: AsyncSession, max_age_hours: int = 72) -> int:
+async def expire_old_signals(
+    session: AsyncSession,
+    max_age_hours: int = 72,
+    *,
+    current_price: float | None = None,
+) -> int:
     cutoff = datetime.now(tz=UTC) - timedelta(hours=max_age_hours)
     result = await session.execute(
         select(Signal)
@@ -304,7 +318,16 @@ async def expire_old_signals(session: AsyncSession, max_age_hours: int = 72) -> 
     )
     signals = list(result.scalars().all())
     for signal in signals:
-        await close_signal(session, signal, status=TradeStatus.EXPIRED.value, exit_price=signal.entry_price, pnl_percent=0.0)
+        if current_price is not None:
+            await force_close_signal(session, signal, current_price)
+        else:
+            await close_signal(
+                session,
+                signal,
+                status=TradeStatus.EXPIRED.value,
+                exit_price=signal.entry_price,
+                pnl_percent=0.0,
+            )
     return len(signals)
 
 

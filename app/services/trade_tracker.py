@@ -18,8 +18,9 @@ from app.database.repositories import (
     has_open_signal,
     list_open_signals,
 )
-from app.services.subscription import list_premium_notify_users
+from app.services.subscription import list_premium_notify_users, send_subscription_reminders
 from app.services.market_data import Candle, fetch_candles, fetch_current_price
+from app.services.trade_management import apply_trailing_stop
 from app.utils.telegram import send_signal_chart
 from app.services.strategy import analyze_candles
 from app.services.strategy_config import StrategyConfig
@@ -29,8 +30,8 @@ from app.utils.messages import format_signal_card, format_trade_closed
 logger = logging.getLogger(__name__)
 
 
-def format_signal_message(signal: Signal, *, is_new: bool = False) -> str:
-    return format_signal_card(signal, is_new=is_new)
+def format_signal_message(signal: Signal, *, is_new: bool = False, current_price: float | None = None) -> str:
+    return format_signal_card(signal, is_new=is_new, current_price=current_price)
 
 
 async def run_market_scan(
@@ -91,6 +92,7 @@ async def check_open_trades(session: AsyncSession, settings: Settings) -> list[S
     closed: list[Signal] = []
 
     for signal in await list_open_signals(session):
+        await apply_trailing_stop(session, signal, price)
         lev = get_leverage(signal)
         if signal.direction == "long":
             if price >= signal.take_profit:
@@ -111,7 +113,7 @@ async def check_open_trades(session: AsyncSession, settings: Settings) -> list[S
                 await close_signal(session, signal, status=TradeStatus.LOSS.value, exit_price=price, pnl_percent=spot_to_leveraged(spot, lev))
                 closed.append(signal)
 
-    await expire_old_signals(session)
+    await expire_old_signals(session, current_price=price)
     return closed
 
 
@@ -125,15 +127,14 @@ async def notify_signal(
     cfg: StrategyConfig | None = None,
 ) -> None:
     text = format_signal_message(signal, is_new=True)
-    admin_ids = set(settings.parsed_admin_ids)
-    recipient_ids = set(admin_ids)
+    recipient_ids = set(settings.parsed_admin_ids)
     if settings.notify_on_signal:
         recipient_ids.update(user.tg_id for user in await list_premium_notify_users(session, settings))
 
     for tg_id in recipient_ids:
         try:
             await bot.send_message(chat_id=tg_id, text=text)
-            if tg_id in admin_ids and candles and cfg:
+            if candles and cfg:
                 await send_signal_chart(bot, tg_id, candles, cfg, signal)
         except Exception:
             logger.exception("Failed to notify user %s", tg_id)
@@ -178,6 +179,14 @@ def setup_scheduler(session_pool: async_sessionmaker[AsyncSession], bot: Bot, se
             except Exception:
                 logger.exception("Check trades job failed")
 
+    async def subscription_reminder_job() -> None:
+        async with session_pool() as session:
+            try:
+                await send_subscription_reminders(session, bot)
+            except Exception:
+                logger.exception("Subscription reminder job failed")
+
     scheduler.add_job(scan_job, "interval", minutes=settings.scan_interval_minutes, id="market_scan")
     scheduler.add_job(check_job, "interval", minutes=settings.trade_check_interval_minutes, id="trade_check")
+    scheduler.add_job(subscription_reminder_job, "interval", hours=12, id="sub_reminders")
     return scheduler

@@ -8,6 +8,7 @@ SIGNAL_MIGRATIONS = (
     ("strength", "INTEGER DEFAULT 0"),
     ("macd_hist", "FLOAT"),
     ("leverage", "INTEGER DEFAULT 20"),
+    ("initial_stop_loss", "FLOAT"),
 )
 
 USER_MIGRATIONS = (
@@ -107,6 +108,10 @@ async def init_database(engine: AsyncEngine) -> None:
                     "UPDATE signals SET pnl_percent = pnl_percent * 20 "
                     "WHERE pnl_percent IS NOT NULL AND ABS(pnl_percent) < 15"
                 ))
+            sync_conn.execute(text(
+                "UPDATE signals SET initial_stop_loss = stop_loss "
+                "WHERE initial_stop_loss IS NULL"
+            ))
             sync_conn.execute(text(
                 "UPDATE users SET referral_code = lower(hex(randomblob(4))) "
                 "WHERE referral_code IS NULL OR referral_code = ''"

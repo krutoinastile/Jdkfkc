@@ -38,7 +38,7 @@ from app.keyboards.user import (
 from app.services.backtest import run_backtest
 from app.services.derivatives import fetch_derivatives_stats
 from app.services.funding import fetch_funding_rate
-from app.services.market_data import fetch_candles
+from app.services.market_data import fetch_candles, fetch_current_price
 from app.services.profit_calc import PERIOD_OPTIONS, period_label as calc_period_label, simulate_profit
 from app.services.sentiment import fetch_fear_greed
 from app.services.strategy import market_snapshot
@@ -64,6 +64,7 @@ from app.utils.messages import (
     welcome_text,
 )
 from app.utils.billing_messages import format_subscription_paywall
+from app.utils.trade_pnl import format_live_trade
 from app.utils.telegram import answer_with_chart
 
 from app.utils.backtest_ui import (
@@ -83,6 +84,25 @@ PAGE_SIZE = 5
 
 async def _cfg(session: AsyncSession) -> StrategyConfig:
     return StrategyConfig.from_db(await get_strategy_settings(session))
+
+
+def _subscription_paywall_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💎 Оформить подписку", callback_data="menu:subscription")],
+            [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
+        ]
+    )
+
+
+async def _require_signal_access(message: Message, session: AsyncSession, settings: Settings):
+    if message.from_user is None:
+        return None
+    user = await get_or_create_user(session, message.from_user.id, message.from_user.username)
+    if not await user_has_signal_access(session, user, settings):
+        await message.answer(format_subscription_paywall(), reply_markup=_subscription_paywall_keyboard())
+        return None
+    return user
 
 
 async def _market_context(session: AsyncSession, settings: Settings) -> tuple:
@@ -228,6 +248,10 @@ async def menu_dashboard(callback: CallbackQuery, session: AsyncSession, setting
     cfg, candles, snap, fear_greed, funding, derivatives = await _market_context(session, settings)
     stats = await get_statistics(session)
     open_signals = await list_open_signals(session)
+    open_trade_text = None
+    if open_signals:
+        price = await fetch_current_price(settings.symbol)
+        open_trade_text = format_live_trade(open_signals[0], price)
     caption = format_dashboard(
         snap,
         stats,
@@ -235,6 +259,7 @@ async def menu_dashboard(callback: CallbackQuery, session: AsyncSession, setting
         fear_greed=fear_greed,
         funding=funding,
         derivatives=derivatives,
+        open_trade_text=open_trade_text,
     )
     await answer_with_chart(
         callback.message,
@@ -414,23 +439,19 @@ async def menu_signal(callback: CallbackQuery, session: AsyncSession, settings: 
     if not await user_has_signal_access(session, user, settings):
         await callback.message.answer(
             format_subscription_paywall(),
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text="💎 Оформить подписку", callback_data="menu:subscription")],
-                    [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
-                ]
-            ),
+            reply_markup=_subscription_paywall_keyboard(),
         )
         return
 
     open_signals = await list_open_signals(session)
     cfg, candles, snap, _, _, _ = await _market_context(session, settings)
+    current_price = await fetch_current_price(settings.symbol)
 
     if open_signals:
         signal = open_signals[0]
         await answer_with_chart(
             callback.message,
-            format_signal_message(signal),
+            format_signal_message(signal, current_price=current_price),
             candles,
             cfg,
             signal=signal,
@@ -551,10 +572,19 @@ async def stats_cmd(message: Message, session: AsyncSession, settings: Settings)
 
 @router.message(Command("signal"))
 async def signal_cmd(message: Message, session: AsyncSession, settings: Settings) -> None:
+    if await _require_signal_access(message, session, settings) is None:
+        return
     open_signals = await list_open_signals(session)
     cfg, candles, snap, _, _, _ = await _market_context(session, settings)
+    current_price = await fetch_current_price(settings.symbol)
     if open_signals:
-        await answer_with_chart(message, format_signal_message(open_signals[0]), candles, cfg, signal=open_signals[0])
+        await answer_with_chart(
+            message,
+            format_signal_message(open_signals[0], current_price=current_price),
+            candles,
+            cfg,
+            signal=open_signals[0],
+        )
     else:
         await answer_with_chart(message, format_no_signal(snap), candles, cfg)
 
