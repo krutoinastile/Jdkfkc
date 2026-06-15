@@ -35,11 +35,24 @@ class CryptoPayClient:
         self._token = api_token
         self._base = TESTNET_URL if testnet else MAINNET_URL
 
+    @staticmethod
+    def _encode_params(params: dict[str, Any]) -> dict[str, str | int | float]:
+        encoded: dict[str, str | int | float] = {}
+        for key, value in params.items():
+            if value is None:
+                continue
+            if isinstance(value, bool):
+                encoded[key] = "true" if value else "false"
+            else:
+                encoded[key] = value
+        return encoded
+
     async def _request(self, method: str, **params: Any) -> Any:
         url = f"{self._base}{method}"
         headers = {"Crypto-Pay-API-Token": self._token}
+        query = self._encode_params(params)
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            async with session.get(url, headers=headers, params=query, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                 data = await resp.json(content_type=None)
         if not data.get("ok"):
             raise CryptoPayError(data.get("error", "Crypto Pay API error"))

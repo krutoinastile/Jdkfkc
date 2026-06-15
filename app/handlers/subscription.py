@@ -104,7 +104,15 @@ async def subscription_pay(callback: CallbackQuery, session: AsyncSession) -> No
     try:
         pay_url, _ = await create_subscription_invoice(session, user)
     except CryptoPayError as exc:
+        logger.exception("Failed to create subscription invoice")
         await callback.message.answer(f"❌ Не удалось создать счёт: {exc}")
+        return
+    except Exception:
+        logger.exception("Unexpected error creating subscription invoice")
+        await callback.message.answer("❌ Ошибка при создании счёта. Попробуйте позже.")
+        return
+    if not pay_url:
+        await callback.message.answer("❌ Crypto Pay не вернул ссылку на оплату. Проверьте token в админке.")
         return
     await callback.message.answer(
         "💳 <b>Счёт создан</b>\n\nОплатите в Crypto Bot. После оплаты нажмите «Проверить оплату».",
