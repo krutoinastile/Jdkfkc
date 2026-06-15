@@ -12,11 +12,14 @@ SIGNAL_MIGRATIONS = (
 USER_MIGRATIONS = (
     ("notify_liq_longs", "BOOLEAN DEFAULT 0"),
     ("notify_liq_shorts", "BOOLEAN DEFAULT 0"),
+    ("notify_funding", "BOOLEAN DEFAULT 0"),
 )
 
 STRATEGY_MIGRATIONS = (
     ("min_liquidation_usd", "FLOAT DEFAULT 50000"),
     ("liquidations_enabled", "BOOLEAN DEFAULT 1"),
+    ("funding_alerts_enabled", "BOOLEAN DEFAULT 1"),
+    ("min_funding_rate_pct", "FLOAT DEFAULT 0.05"),
 )
 
 

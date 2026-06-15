@@ -58,6 +58,17 @@ def strategy_keyboard(cfg: StrategySettings) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="Liq $100k", callback_data="admin:strategy:liqmin:100000"),
                 InlineKeyboardButton(text="Liq $250k", callback_data="admin:strategy:liqmin:250000"),
             ],
+            [
+                InlineKeyboardButton(
+                    text=_toggle("Funding", cfg.funding_alerts_enabled),
+                    callback_data="admin:strategy:toggle:funding",
+                ),
+            ],
+            [
+                InlineKeyboardButton(text="Fund 0.03%", callback_data="admin:strategy:fund:0.03"),
+                InlineKeyboardButton(text="Fund 0.05%", callback_data="admin:strategy:fund:0.05"),
+                InlineKeyboardButton(text="Fund 0.10%", callback_data="admin:strategy:fund:0.1"),
+            ],
             [InlineKeyboardButton(text="◀️ Админ", callback_data="admin:home")],
         ]
     )

@@ -1,3 +1,5 @@
+import asyncio
+
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, Message
@@ -14,7 +16,9 @@ from app.database.repositories import (
     toggle_user_flag,
 )
 from app.keyboards.user import back_keyboard, history_keyboard, main_menu_keyboard, settings_keyboard, settings_text
+from app.services.funding import fetch_funding_rate
 from app.services.market_data import fetch_candles
+from app.services.sentiment import fetch_fear_greed
 from app.services.strategy import market_snapshot
 from app.services.strategy_config import StrategyConfig
 from app.services.trade_tracker import format_signal_message
@@ -27,6 +31,7 @@ from app.utils.messages import (
     help_text,
     welcome_text,
 )
+from app.utils.telegram import answer_with_chart
 
 router = Router(name="user")
 
@@ -35,6 +40,17 @@ PAGE_SIZE = 5
 
 async def _cfg(session: AsyncSession) -> StrategyConfig:
     return StrategyConfig.from_db(await get_strategy_settings(session))
+
+
+async def _market_context(session: AsyncSession, settings: Settings) -> tuple:
+    cfg = await _cfg(session)
+    candles, fear_greed, funding = await asyncio.gather(
+        fetch_candles(settings.symbol, cfg.timeframe),
+        fetch_fear_greed(),
+        fetch_funding_rate(settings.symbol),
+    )
+    snap = market_snapshot(candles, cfg)
+    return cfg, candles, snap, fear_greed, funding
 
 
 @router.message(CommandStart())
@@ -57,19 +73,17 @@ async def menu_home(callback: CallbackQuery, session: AsyncSession, settings: Se
 
 @router.callback_query(F.data == "menu:dashboard")
 async def menu_dashboard(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
-    await callback.answer()
+    await callback.answer("Загружаю...")
     if not isinstance(callback.message, Message):
         return
 
-    cfg = await _cfg(session)
-    candles = await fetch_candles(settings.symbol, cfg.timeframe)
-    snap = market_snapshot(candles, cfg)
+    cfg, candles, snap, fear_greed, funding = await _market_context(session, settings)
     stats = await get_statistics(session)
     open_signals = await list_open_signals(session)
-    await callback.message.answer(
-        format_dashboard(snap, stats, has_open=bool(open_signals)),
-        reply_markup=back_keyboard(),
+    caption = format_dashboard(
+        snap, stats, has_open=bool(open_signals), fear_greed=fear_greed, funding=funding,
     )
+    await answer_with_chart(callback.message, caption, candles, cfg, reply_markup=back_keyboard())
 
 
 @router.callback_query(F.data == "menu:help")
@@ -82,31 +96,43 @@ async def menu_help(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "menu:signal")
 async def menu_signal(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
-    await callback.answer()
+    await callback.answer("Загружаю...")
     if not isinstance(callback.message, Message):
         return
 
     open_signals = await list_open_signals(session)
+    cfg, candles, snap, _, _ = await _market_context(session, settings)
+
     if open_signals:
-        await callback.message.answer(format_signal_message(open_signals[0]), reply_markup=back_keyboard())
+        signal = open_signals[0]
+        await answer_with_chart(
+            callback.message,
+            format_signal_message(signal),
+            candles,
+            cfg,
+            signal=signal,
+            reply_markup=back_keyboard(),
+        )
         return
 
-    cfg = await _cfg(session)
-    candles = await fetch_candles(settings.symbol, cfg.timeframe)
-    snap = market_snapshot(candles, cfg)
-    await callback.message.answer(format_no_signal(snap), reply_markup=back_keyboard())
+    await answer_with_chart(
+        callback.message,
+        format_no_signal(snap),
+        candles,
+        cfg,
+        reply_markup=back_keyboard(),
+    )
 
 
 @router.callback_query(F.data == "menu:market")
 async def menu_market(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
-    await callback.answer()
+    await callback.answer("Загружаю...")
     if not isinstance(callback.message, Message):
         return
 
-    cfg = await _cfg(session)
-    candles = await fetch_candles(settings.symbol, cfg.timeframe)
-    snap = market_snapshot(candles, cfg)
-    await callback.message.answer(format_market(snap, cfg.timeframe), reply_markup=back_keyboard())
+    cfg, candles, snap, fear_greed, funding = await _market_context(session, settings)
+    caption = format_market(snap, cfg.timeframe, fear_greed=fear_greed, funding=funding)
+    await answer_with_chart(callback.message, caption, candles, cfg, reply_markup=back_keyboard())
 
 
 @router.callback_query(F.data == "menu:stats")
@@ -153,7 +179,7 @@ async def toggle_setting(callback: CallbackQuery, session: AsyncSession) -> None
     if callback.from_user is None or callback.data is None:
         return
     field = callback.data.split(":")[-1]
-    allowed = {"notify_signals", "notify_liq_longs", "notify_liq_shorts"}
+    allowed = {"notify_signals", "notify_liq_longs", "notify_liq_shorts", "notify_funding"}
     if field not in allowed:
         await callback.answer("Неизвестная настройка.", show_alert=True)
         return
@@ -181,10 +207,8 @@ async def stats_cmd(message: Message, session: AsyncSession, settings: Settings)
 @router.message(Command("signal"))
 async def signal_cmd(message: Message, session: AsyncSession, settings: Settings) -> None:
     open_signals = await list_open_signals(session)
+    cfg, candles, snap, _, _ = await _market_context(session, settings)
     if open_signals:
-        await message.answer(format_signal_message(open_signals[0]))
+        await answer_with_chart(message, format_signal_message(open_signals[0]), candles, cfg, signal=open_signals[0])
     else:
-        cfg = StrategyConfig.from_db(await get_strategy_settings(session))
-        candles = await fetch_candles(settings.symbol, cfg.timeframe)
-        snap = market_snapshot(candles, cfg)
-        await message.answer(format_no_signal(snap))
+        await answer_with_chart(message, format_no_signal(snap), candles, cfg)

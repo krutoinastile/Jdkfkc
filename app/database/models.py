@@ -28,6 +28,7 @@ class User(Base):
     notify_signals: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notify_liq_longs: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notify_liq_shorts: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    notify_funding: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -89,6 +90,8 @@ class StrategySettings(Base):
     min_signal_strength: Mapped[int] = mapped_column(default=60, nullable=False)
     min_liquidation_usd: Mapped[float] = mapped_column(Float, default=50_000.0, nullable=False)
     liquidations_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    funding_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    min_funding_rate_pct: Mapped[float] = mapped_column(Float, default=0.05, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

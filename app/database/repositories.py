@@ -51,6 +51,11 @@ async def list_users_notify_liq_shorts(session: AsyncSession) -> list[User]:
     return list(result.scalars().all())
 
 
+async def list_users_notify_funding(session: AsyncSession) -> list[User]:
+    result = await session.execute(select(User).where(User.notify_funding.is_(True)))
+    return list(result.scalars().all())
+
+
 async def has_open_signal(session: AsyncSession, symbol: str) -> bool:
     result = await session.execute(
         select(Signal.id)

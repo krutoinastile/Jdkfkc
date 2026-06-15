@@ -41,6 +41,9 @@ def strategy_text(cfg) -> str:
         f"<b>Ликвидации</b>\n"
         f"Мониторинг: {'✅' if cfg.liquidations_enabled else '❌'}\n"
         f"Мин. сумма: <b>${cfg.min_liquidation_usd:,.0f}</b>\n\n"
+        f"<b>Funding Rate</b>\n"
+        f"Алерты: {'✅' if cfg.funding_alerts_enabled else '❌'}\n"
+        f"Порог: <b>{cfg.min_funding_rate_pct:.2f}%</b>\n\n"
         "<i>Стратегия: тренд EMA + пересечение/откат + MACD + объём + 4H</i>"
     )
 
@@ -94,6 +97,8 @@ async def admin_users(callback: CallbackQuery, session: AsyncSession) -> None:
             liq += " L"
         if u.notify_liq_shorts:
             liq += " S"
+        if u.notify_funding:
+            liq += " F"
         lines.append(f"{notify}{liq} {name} (<code>{u.tg_id}</code>)")
     await callback.message.answer(
         "\n".join(lines) if users else "Пользователей нет.",
@@ -119,7 +124,7 @@ async def toggle_scan(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
 
 
-@router.callback_query(F.data.regexp(r"^admin:strategy:toggle:(macd|vol|htf|liq)$"))
+@router.callback_query(F.data.regexp(r"^admin:strategy:toggle:(macd|vol|htf|liq|funding)$"))
 async def toggle_filter(callback: CallbackQuery, session: AsyncSession) -> None:
     if callback.data is None:
         return
@@ -129,6 +134,7 @@ async def toggle_filter(callback: CallbackQuery, session: AsyncSession) -> None:
         "vol": "use_volume_filter",
         "htf": "use_higher_tf",
         "liq": "liquidations_enabled",
+        "funding": "funding_alerts_enabled",
     }
     cfg = await get_strategy_settings(session)
     field = field_map[key]
@@ -189,6 +195,17 @@ async def set_strength(callback: CallbackQuery, session: AsyncSession) -> None:
     val = int(callback.data.rsplit(":", maxsplit=1)[-1])
     cfg = await update_strategy_settings(session, min_signal_strength=val)
     await callback.answer(f"Мин. сила: {val}")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data.regexp(r"^admin:strategy:fund:[\d.]+$"))
+async def set_funding_threshold(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    val = float(callback.data.rsplit(":", maxsplit=1)[-1])
+    cfg = await update_strategy_settings(session, min_funding_rate_pct=val)
+    await callback.answer(f"Funding порог: {val}%")
     if isinstance(callback.message, Message):
         await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
 

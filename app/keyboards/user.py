@@ -42,6 +42,10 @@ def settings_keyboard(user: User) -> InlineKeyboardMarkup:
                     callback_data="settings:toggle:notify_liq_shorts",
                 ),
             ],
+            [InlineKeyboardButton(
+                text=f"{onoff(user.notify_funding)} Funding Rate",
+                callback_data="settings:toggle:notify_funding",
+            )],
             [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
         ]
     )
@@ -59,7 +63,9 @@ def settings_text(user: User) -> str:
         f"  Сигналы входа — {state(user.notify_signals)}\n"
         f"{section('Ликвидации')}\n"
         f"  LONG позиции — {state(user.notify_liq_longs)}\n"
-        f"  SHORT позиции — {state(user.notify_liq_shorts)}\n\n"
+        f"  SHORT позиции — {state(user.notify_liq_shorts)}\n"
+        f"{section('Funding')}\n"
+        f"  Экстремальный rate — {state(user.notify_funding)}\n\n"
         f"<i>Ликвидации — в реальном времени с Binance Futures</i>"
     )
 

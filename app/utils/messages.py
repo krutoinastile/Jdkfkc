@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.database.models import Signal
-from app.utils.formatting import bullet_list, header, money, pnl, section, strength_bar, win_rate_bar
+from app.utils.formatting import bullet_list, header, money, pnl, progress_bar, section, strength_bar, win_rate_bar
 
 
 def welcome_text() -> str:
@@ -11,7 +11,8 @@ def welcome_text() -> str:
         f"{header('₿ BTC Trading Bot', 'Аналитика и сигналы в реальном времени')}\n\n"
         f"{bullet_list([
             'Точки входа LONG / SHORT',
-            'Стратегия: EMA + RSI + MACD + ATR',
+            'Графики с EMA на свечах',
+            'Fear & Greed + Funding Rate',
             'Ликвидации с Binance Futures',
             'Статистика и история сделок',
         ])}\n\n"
@@ -24,12 +25,12 @@ def help_text() -> str:
         f"{header('❓ Справка')}\n"
         f"{section('Разделы')}\n"
         f"{bullet_list([
-            'Дашборд — сводка рынка и статистики',
-            'Сигнал — активная точка входа',
-            'Рынок — цена, RSI, MACD, тренд',
+            'Дашборд — сводка, график, Fear & Greed',
+            'Сигнал — активная точка входа + график',
+            'Рынок — цена, индикаторы + график',
             'Статистика — win rate и P&L',
             'История — прошлые сделки',
-            'Уведомления — сигналы и ликвидации',
+            'Уведомления — сигналы, ликвидации, funding',
         ])}\n"
         f"{section('Команды')}\n"
         f"{bullet_list([
@@ -38,6 +39,26 @@ def help_text() -> str:
             '/stats — статистика',
             '/admin — панель админа',
         ])}"
+    )
+
+
+def _format_fear_greed(fng: dict | None) -> str:
+    if fng is None:
+        return "  Fear & Greed: <i>недоступен</i>"
+    bar = progress_bar(fng["value"], 100, 10)
+    return f"  {fng['emoji']} Fear & Greed: {bar} <b>{fng['value']}</b> — {fng['label']}"
+
+
+def _format_funding(funding: dict | None) -> str:
+    if funding is None:
+        return "  Funding: <i>недоступен</i>"
+    sign = "+" if funding["rate_pct"] >= 0 else ""
+    next_line = ""
+    if funding.get("next_funding"):
+        next_line = f"\n  След. funding: <b>{funding['next_funding'].strftime('%d.%m %H:%M UTC')}</b>"
+    return (
+        f"  💸 Funding: <b>{sign}{funding['rate_pct']:.4f}%</b> ({funding['source']})\n"
+        f"  {funding['bias']}{next_line}"
     )
 
 
@@ -58,7 +79,7 @@ def format_stats(stats: dict) -> str:
     )
 
 
-def format_market(snap: dict, timeframe: str) -> str:
+def format_market(snap: dict, timeframe: str, *, fear_greed: dict | None = None, funding: dict | None = None) -> str:
     return (
         f"{header('💹 BTC/USDT', f'Таймфрейм {timeframe}')}\n"
         f"{section('Цена')}\n"
@@ -71,7 +92,10 @@ def format_market(snap: dict, timeframe: str) -> str:
         f"{section('EMA')}\n"
         f"  EMA9:  {money(snap['ema_fast'])}\n"
         f"  EMA21: {money(snap['ema_slow'])}\n"
-        f"  EMA55: {money(snap['ema_trend'])}"
+        f"  EMA55: {money(snap['ema_trend'])}\n"
+        f"{section('Сентимент')}\n"
+        f"{_format_fear_greed(fear_greed)}\n"
+        f"{_format_funding(funding)}"
     )
 
 
@@ -87,13 +111,23 @@ def format_no_signal(snap: dict) -> str:
     )
 
 
-def format_dashboard(snap: dict, stats: dict, *, has_open: bool) -> str:
+def format_dashboard(
+    snap: dict,
+    stats: dict,
+    *,
+    has_open: bool,
+    fear_greed: dict | None = None,
+    funding: dict | None = None,
+) -> str:
     signal_state = "🟢 Есть активный сигнал" if has_open else "⚪ Ожидание входа"
     return (
         f"{header('🏠 Дашборд', 'Bitcoin Trading')}\n"
         f"{section('Рынок')}\n"
         f"  BTC: <b>{money(snap['price'])}</b>  {snap['trend']}\n"
         f"  RSI {snap['rsi']} · MACD {snap['macd']}\n"
+        f"{section('Сентимент')}\n"
+        f"{_format_fear_greed(fear_greed)}\n"
+        f"{_format_funding(funding)}\n"
         f"{section('Сигналы')}\n"
         f"  {signal_state}\n"
         f"  Win Rate: {win_rate_bar(stats['win_rate'])}\n"
@@ -191,4 +225,19 @@ def format_liquidation(
         f"  Объём: <b>{quantity:.4f} BTC</b>\n"
         f"  Сумма: <b>{money(usd_value)}</b>\n\n"
         f"<i>{desc}</i>"
+    )
+
+
+def format_funding_alert(funding: dict) -> str:
+    sign = "+" if funding["rate_pct"] >= 0 else ""
+    if funding["rate_pct"] > 0:
+        hint = "Высокий funding — перегрев лонгов, возможна коррекция"
+    else:
+        hint = "Отрицательный funding — перегрев шортов, возможен отскок"
+    return (
+        f"{header('💸 Экстремальный Funding', 'BTC/USDT Perpetual')}\n"
+        f"{section('Ставка')}\n"
+        f"  <b>{sign}{funding['rate_pct']:.4f}%</b> ({funding['source']})\n"
+        f"  {funding['bias']}\n\n"
+        f"<i>{hint}</i>"
     )
