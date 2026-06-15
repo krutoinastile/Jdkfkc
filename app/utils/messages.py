@@ -423,7 +423,7 @@ def format_calculator_result(sim) -> str:  # noqa: ANN001
     period = period_label(sim.period_days)
 
     return (
-        f"{header(f'{profit_emoji} Результат', f'{period} · {money(sim.initial_capital)} · 20x')}\n"
+        f"{header(f'{profit_emoji} Результат', f'{period} · {money(sim.initial_capital)} · 20x · 10%')}\n"
         f"{section('Заработок')}\n"
         f"{kv('📅 Период', f'<b>{period}</b>')}\n"
         f"{kv('💵 Старт', f'<b>{money(sim.initial_capital)}</b>')}\n"
@@ -440,7 +440,8 @@ def format_calculator_result(sim) -> str:  # noqa: ANN001
         f"{kv('Лучшая', pnl_colored(sim.best_trade_pct))}\n"
         f"{kv('Худшая', pnl_colored(sim.worst_trade_pct))}\n"
         f"{kv('Средняя', pnl_colored(sim.avg_trade_pct))}\n\n"
-        f"<i>⚠️ Прошлые результаты не гарантируют будущую доходность.</i>"
+        f"<i>Расчёт: 10% банка в маржу на сделку · плечо 20x.\n"
+        f"⚠️ Прошлые результаты не гарантируют будущую доходность.</i>"
         f"{footer()}"
     )
 
@@ -470,7 +471,8 @@ def format_backtest_intro(timeframe: str) -> str:
         f"{header('🔬 Бэктест', 'Симуляция за месяц')}\n\n"
         f"Период: <b>{BACKTEST_DAYS} дней</b>\n"
         f"Таймфрейм: <b>{timeframe}</b>\n"
-        f"Плечо: <b>20x</b> · Капитал: <b>$1,000</b>\n\n"
+        f"Плечо: <b>20x</b> · Капитал: <b>$1,000</b>\n"
+        f"Ставка: <b>10% банка</b> на сделку\n\n"
         f"Выберите лимит сделок в день:\n"
         f"   {limits}\n\n"
         f"<i>Лимит = максимум входов в сутки, если стратегия\n"
@@ -506,7 +508,7 @@ def format_backtest_result(
     elif result.trades:
         history_note = (
             f"\n<i>ℹ️ Лимит: до {limit_label} · фактически макс {result.max_trades_per_day}/день.\n"
-            f"~{covered:.0f} дн. · {len(result.trades)} сделок · 20x · 100% банка.</i>"
+            f"~{covered:.0f} дн. · {len(result.trades)} сделок · 20x · 10% банка.</i>"
         )
 
     if not result.trades:
@@ -525,7 +527,7 @@ def format_backtest_result(
     profit_emoji = "📈" if profit >= 0 else "📉"
 
     return (
-        f"{header('🔬 Бэктест', f'{label} · {timeframe} · 20x')}\n"
+        f"{header('🔬 Бэктест', f'{label} · {timeframe} · 20x · 10%')}\n"
         f"{section('Настройки')}\n"
         f"{kv('Период', f'<b>{label}</b>')}\n"
         f"{kv('Лимит', f'<b>{limit_label}</b>')}\n"
@@ -543,7 +545,7 @@ def format_backtest_result(
         f"{section(f'{profit_emoji} Капитал $1000')}\n"
         f"{kv('Итого', f'<b>{money(result.final_capital)}</b>')}\n"
         f"{kv('Прибыль', f'<b>{money(profit)}</b> ({pnl_colored(profit / result.simulated_capital * 100)})')}\n\n"
-        f"<i>Симуляция на истории. Реальная торговля может отличаться.</i>"
+        f"<i>10% банка в маржу · 20x · реинвест. Реальная торговля может отличаться.</i>"
         f"{history_note}"
         f"{footer()}"
     )

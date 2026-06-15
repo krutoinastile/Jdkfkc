@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.database.models import Signal, TradeStatus
+from app.utils.leverage import DEFAULT_BANK_ALLOCATION_PCT, pnl_on_bank
 
 PERIOD_OPTIONS: dict[int, str] = {
     7: "7 дней",
@@ -65,9 +66,12 @@ def simulate_profit(
     losses = len(trades) - wins
 
     for trade in trades:
-        pct = trade.pnl_percent or 0.0
-        compound *= 1 + pct / 100
-        fixed_total_pct += pct
+        margin_pct = trade.pnl_percent or 0.0
+        bank_pct = pnl_on_bank(margin_pct, DEFAULT_BANK_ALLOCATION_PCT)
+        compound *= 1 + bank_pct / 100
+        fixed_total_pct += bank_pct
+
+    bank_pnls = [pnl_on_bank(p, DEFAULT_BANK_ALLOCATION_PCT) for p in pnls]
 
     final_fixed = initial_capital * (1 + fixed_total_pct / 100)
     profit_compound = compound - initial_capital
@@ -84,9 +88,9 @@ def simulate_profit(
         trades=len(trades),
         wins=wins,
         losses=losses,
-        best_trade_pct=round(max(pnls), 2),
-        worst_trade_pct=round(min(pnls), 2),
-        avg_trade_pct=round(sum(pnls) / len(pnls), 2),
+        best_trade_pct=round(max(bank_pnls), 2),
+        worst_trade_pct=round(min(bank_pnls), 2),
+        avg_trade_pct=round(sum(bank_pnls) / len(bank_pnls), 2),
         period_days=period_days,
         total_in_period=total_in_period or len(trades),
     )
