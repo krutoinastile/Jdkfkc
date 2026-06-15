@@ -5,11 +5,17 @@ from app.database.models import User
 
 def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text="📊 Точка входа", callback_data="menu:signal")],
-        [InlineKeyboardButton(text="💹 Рынок BTC", callback_data="menu:market")],
-        [InlineKeyboardButton(text="📈 Статистика", callback_data="menu:stats")],
-        [InlineKeyboardButton(text="📜 История сделок", callback_data="menu:history:0")],
+        [InlineKeyboardButton(text="🏠 Дашборд", callback_data="menu:dashboard")],
+        [
+            InlineKeyboardButton(text="📊 Сигнал", callback_data="menu:signal"),
+            InlineKeyboardButton(text="💹 Рынок", callback_data="menu:market"),
+        ],
+        [
+            InlineKeyboardButton(text="📈 Статистика", callback_data="menu:stats"),
+            InlineKeyboardButton(text="📜 История", callback_data="menu:history:0"),
+        ],
         [InlineKeyboardButton(text="🔔 Уведомления", callback_data="menu:settings")],
+        [InlineKeyboardButton(text="❓ Помощь", callback_data="menu:help")],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text="🛠 Админ-панель", callback_data="admin:home")])
@@ -18,34 +24,43 @@ def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
 
 def settings_keyboard(user: User) -> InlineKeyboardMarkup:
     def onoff(enabled: bool) -> str:
-        return "✅" if enabled else "❌"
+        return "🟢" if enabled else "⚫"
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(
-                text=f"{onoff(user.notify_signals)} Торговые сигналы",
+                text=f"{onoff(user.notify_signals)} Сигналы входа",
                 callback_data="settings:toggle:notify_signals",
             )],
-            [InlineKeyboardButton(
-                text=f"{onoff(user.notify_liq_longs)} Ликвидации LONG",
-                callback_data="settings:toggle:notify_liq_longs",
-            )],
-            [InlineKeyboardButton(
-                text=f"{onoff(user.notify_liq_shorts)} Ликвидации SHORT",
-                callback_data="settings:toggle:notify_liq_shorts",
-            )],
+            [
+                InlineKeyboardButton(
+                    text=f"{onoff(user.notify_liq_longs)} Liq LONG",
+                    callback_data="settings:toggle:notify_liq_longs",
+                ),
+                InlineKeyboardButton(
+                    text=f"{onoff(user.notify_liq_shorts)} Liq SHORT",
+                    callback_data="settings:toggle:notify_liq_shorts",
+                ),
+            ],
             [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
         ]
     )
 
 
 def settings_text(user: User) -> str:
+    from app.utils.formatting import header, section
+
+    def state(on: bool) -> str:
+        return "🟢 Включено" if on else "⚫ Выключено"
+
     return (
-        "<b>🔔 Настройки уведомлений</b>\n\n"
-        f"Торговые сигналы: <b>{'вкл' if user.notify_signals else 'выкл'}</b>\n"
-        f"Ликвидации LONG: <b>{'вкл' if user.notify_liq_longs else 'выкл'}</b>\n"
-        f"Ликвидации SHORT: <b>{'вкл' if user.notify_liq_shorts else 'выкл'}</b>\n\n"
-        "<i>Ликвидации отслеживаются в реальном времени с Binance Futures.</i>"
+        f"{header('🔔 Уведомления', 'Нажмите кнопку для переключения')}\n"
+        f"{section('Торговля')}\n"
+        f"  Сигналы входа — {state(user.notify_signals)}\n"
+        f"{section('Ликвидации')}\n"
+        f"  LONG позиции — {state(user.notify_liq_longs)}\n"
+        f"  SHORT позиции — {state(user.notify_liq_shorts)}\n\n"
+        f"<i>Ликвидации — в реальном времени с Binance Futures</i>"
     )
 
 
@@ -58,9 +73,9 @@ def back_keyboard() -> InlineKeyboardMarkup:
 def history_keyboard(page: int, has_more: bool) -> InlineKeyboardMarkup:
     nav: list[InlineKeyboardButton] = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"menu:history:{page - 1}"))
+        nav.append(InlineKeyboardButton(text="◬ Назад", callback_data=f"menu:history:{page - 1}"))
     if has_more:
-        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"menu:history:{page + 1}"))
+        nav.append(InlineKeyboardButton(text="Вперёд ⬭", callback_data=f"menu:history:{page + 1}"))
     rows: list[list[InlineKeyboardButton]] = []
     if nav:
         rows.append(nav)

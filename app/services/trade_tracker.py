@@ -21,33 +21,13 @@ from app.database.repositories import (
 from app.services.market_data import fetch_candles, fetch_current_price
 from app.services.strategy import analyze_candles
 from app.services.strategy_config import StrategyConfig
+from app.utils.messages import format_signal_card, format_trade_closed
 
 logger = logging.getLogger(__name__)
 
 
 def format_signal_message(signal: Signal, *, is_new: bool = False) -> str:
-    emoji = "🟢" if signal.direction == "long" else "🔴"
-    action = "LONG (покупка)" if signal.direction == "long" else "SHORT (продажа)"
-    header = "🚨 <b>Новый сигнал!</b>" if is_new else "📊 <b>Текущий сигнал</b>"
-    risk = abs(signal.entry_price - signal.stop_loss)
-    reward = abs(signal.take_profit - signal.entry_price)
-    rr = round(reward / risk, 2) if risk > 0 else 0
-    type_label = "Пересечение" if signal.signal_type == "crossover" else "Откат"
-    strength = getattr(signal, "strength", 0) or 0
-
-    return (
-        f"{header}\n\n"
-        f"{emoji} <b>{action}</b> | BTC/USDT\n"
-        f"Тип: <b>{type_label}</b> | Сила: <b>{strength}/100</b>\n"
-        f"Таймфрейм: {signal.timeframe}\n\n"
-        f"💰 Вход: <b>${signal.entry_price:,.2f}</b>\n"
-        f"🛑 Stop-Loss: <b>${signal.stop_loss:,.2f}</b>\n"
-        f"🎯 Take-Profit: <b>${signal.take_profit:,.2f}</b>\n"
-        f"📐 R:R = 1:{rr}\n\n"
-        f"RSI: {signal.rsi} | EMA9: ${signal.ema_fast:,.0f} | EMA21: ${signal.ema_slow:,.0f}\n"
-        f"ATR: ${signal.atr:,.2f}\n\n"
-        f"<i>{signal.reason}</i>"
-    )
+    return format_signal_card(signal, is_new=is_new)
 
 
 async def run_market_scan(
@@ -130,20 +110,7 @@ async def notify_signal(bot: Bot, session: AsyncSession, signal: Signal) -> None
 
 
 async def notify_trade_closed(bot: Bot, session: AsyncSession, signal: Signal) -> None:
-    if signal.status == TradeStatus.WIN.value:
-        emoji, label = "✅", "УСПЕХ"
-    elif signal.status == TradeStatus.LOSS.value:
-        emoji, label = "❌", "УБЫТОК"
-    else:
-        emoji, label = "⏱", "ИСТЁК"
-
-    text = (
-        f"{emoji} <b>Сделка закрыта: {label}</b>\n\n"
-        f"Направление: {signal.direction.upper()}\n"
-        f"Вход: ${signal.entry_price:,.2f}\n"
-        f"Выход: ${signal.exit_price:,.2f}\n"
-        f"P&L: <b>{signal.pnl_percent:+.2f}%</b>"
-    )
+    text = format_trade_closed(signal)
     for user in await list_subscribed_users(session):
         try:
             await bot.send_message(chat_id=user.tg_id, text=text)

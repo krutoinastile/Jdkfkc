@@ -16,37 +16,11 @@ from app.database.repositories import (
     list_users_notify_liq_longs,
     list_users_notify_liq_shorts,
 )
+from app.utils.messages import format_liquidation
 
 logger = logging.getLogger(__name__)
 
 BINANCE_FORCE_ORDER_WS = "wss://fstream.binance.com/ws/btcusdt@forceOrder"
-
-
-def format_liquidation_message(
-    *,
-    side: str,
-    symbol: str,
-    price: float,
-    quantity: float,
-    usd_value: float,
-) -> str:
-    if side == "long":
-        emoji = "🔥📉"
-        title = "ЛИКВИДАЦИЯ LONG"
-        desc = "Принудительное закрытие длинных позиций (массовые продажи)"
-    else:
-        emoji = "🔥📈"
-        title = "ЛИКВИДАЦИЯ SHORT"
-        desc = "Принудительное закрытие коротких позиций (массовые покупки)"
-
-    return (
-        f"{emoji} <b>{title}</b>\n\n"
-        f"Пара: <b>{symbol}</b>\n"
-        f"Цена: <b>${price:,.2f}</b>\n"
-        f"Объём: <b>{quantity:.4f} BTC</b>\n"
-        f"Сумма: <b>${usd_value:,.0f}</b>\n\n"
-        f"<i>{desc}</i>"
-    )
 
 
 def _parse_liquidation(data: dict) -> tuple[str, str, float, float, float] | None:
@@ -112,7 +86,7 @@ async def _handle_message(
         if usd_value < cfg.min_liquidation_usd:
             return
 
-        text = format_liquidation_message(
+        text = format_liquidation(
             side=liq_side,
             symbol=symbol,
             price=price,
