@@ -103,3 +103,57 @@ def atr(highs: list[float], lows: list[float], closes: list[float], period: int 
         val = (val * (period - 1) + trs[i]) / period
         result.append(val)
     return result
+
+
+def adx(highs: list[float], lows: list[float], closes: list[float], period: int = 14) -> list[float]:
+    """Average Directional Index — trend strength (0-100)."""
+    if len(closes) < period * 2:
+        return []
+    plus_dm: list[float] = []
+    minus_dm: list[float] = []
+    trs: list[float] = []
+    for i in range(1, len(closes)):
+        up = highs[i] - highs[i - 1]
+        down = lows[i - 1] - lows[i]
+        plus_dm.append(up if up > down and up > 0 else 0.0)
+        minus_dm.append(down if down > up and down > 0 else 0.0)
+        trs.append(
+            max(
+                highs[i] - lows[i],
+                abs(highs[i] - closes[i - 1]),
+                abs(lows[i] - closes[i - 1]),
+            )
+        )
+
+    def _smooth(values: list[float]) -> list[float]:
+        if len(values) < period:
+            return []
+        smoothed = [sum(values[:period]) / period]
+        for val in values[period:]:
+            smoothed.append((smoothed[-1] * (period - 1) + val) / period)
+        return smoothed
+
+    tr_s = _smooth(trs)
+    pdm_s = _smooth(plus_dm)
+    mdm_s = _smooth(minus_dm)
+    if not tr_s or not pdm_s or not mdm_s:
+        return []
+
+    dx_vals: list[float] = []
+    for tr_v, p_v, m_v in zip(tr_s, pdm_s, mdm_s):
+        if tr_v <= 0:
+            dx_vals.append(0.0)
+            continue
+        pdi = 100 * p_v / tr_v
+        mdi = 100 * m_v / tr_v
+        denom = pdi + mdi
+        dx_vals.append(abs(pdi - mdi) / denom * 100 if denom else 0.0)
+
+    if len(dx_vals) < period:
+        return []
+    adx_vals = [sum(dx_vals[:period]) / period]
+    for dx in dx_vals[period:]:
+        adx_vals.append((adx_vals[-1] * (period - 1) + dx) / period)
+
+    pad = len(closes) - len(adx_vals)
+    return [0.0] * pad + adx_vals

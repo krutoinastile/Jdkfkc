@@ -27,6 +27,10 @@ STRATEGY_MIGRATIONS = (
     ("min_hours_between_signals", "FLOAT DEFAULT 12"),
     ("max_signals_per_day", "INTEGER DEFAULT 2"),
     ("leverage", "INTEGER DEFAULT 20"),
+    ("htf_strict", "BOOLEAN DEFAULT 1"),
+    ("min_adx", "FLOAT DEFAULT 18"),
+    ("trend_separation_pct", "FLOAT DEFAULT 0.002"),
+    ("pullback_atr_mult", "FLOAT DEFAULT 0.55"),
 )
 
 
@@ -75,6 +79,22 @@ async def init_database(engine: AsyncEngine) -> None:
                 "WHERE id = 1 "
                 "AND max_signals_per_day = 1 "
                 "AND min_hours_between_signals = 24"
+            ))
+            sync_conn.execute(text(
+                "UPDATE strategy_settings SET "
+                "atr_sl_mult = 1.2, "
+                "atr_tp_mult = 3.5, "
+                "use_volume_filter = 1, "
+                "htf_strict = 1, "
+                "min_adx = 18, "
+                "trend_separation_pct = 0.002, "
+                "pullback_atr_mult = 0.55, "
+                "min_signal_strength = 55, "
+                "max_signals_per_day = 2, "
+                "min_hours_between_signals = 12, "
+                "rsi_long_max = 68, "
+                "rsi_short_min = 32 "
+                "WHERE id = 1"
             ))
             signals_before = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(signals)")).fetchall()}
             if "leverage" not in signals_before:

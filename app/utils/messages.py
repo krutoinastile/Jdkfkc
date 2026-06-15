@@ -118,6 +118,7 @@ def format_market(
         f"{section('Индикаторы')}\n"
         f"{kv('RSI', rsi_bar(snap['rsi']))}\n"
         f"{kv('MACD', f'<b>{snap['macd']}</b> ({snap['macd_hist']})')}\n"
+        f"{kv('ADX', f'<b>{snap.get('adx', '—')}</b>')}\n"
         f"{kv('Объём', f'<b>{snap['volume']}</b>')}\n"
         f"{section('EMA')}\n"
         f"{kv('EMA9', money(snap['ema_fast']))}\n"
@@ -138,6 +139,7 @@ def format_no_signal(snap: dict) -> str:
         f"{kv('Цена', f'<b>{money(snap['price'])}</b>')}\n"
         f"{kv('Тренд', snap['trend'])}\n"
         f"{kv('RSI', rsi_bar(snap['rsi']))}\n"
+        f"{kv('ADX', snap.get('adx', '—'))}\n"
         f"{kv('MACD', snap['macd'])}\n\n"
         f"<i>🔔 Уведомление придёт при сильном сигнале.</i>"
         f"{footer()}"
@@ -507,8 +509,8 @@ def format_backtest_result(
         )
     elif result.trades:
         history_note = (
-            f"\n<i>ℹ️ Лимит: до {limit_label} · фактически макс {result.max_trades_per_day}/день.\n"
-            f"~{covered:.0f} дн. · {len(result.trades)} сделок · 20x · 10% банка.</i>"
+            f"\n<i>ℹ️ {limit_label} · ~{covered:.0f} дн. · {len(result.trades)} сделок · "
+            f"ставка 10% банка · 20x.</i>"
         )
 
     if not result.trades:
@@ -539,14 +541,14 @@ def format_backtest_result(
         f"{kv('Всего', f'<b>{len(result.trades)}</b>')}\n"
         f"{kv('Результат', f'✅ {result.wins} · ❌ {result.losses}')}\n"
         f"{kv('Win Rate', win_rate_bar(result.win_rate))}\n"
-        f"{section('P&L')}\n"
+        f"{section('P&L (% к банку, 10% маржа)')}\n"
         f"{kv('Суммарно', pnl_colored(result.total_pnl_pct))}\n"
         f"{kv('Средняя', pnl_colored(result.avg_pnl_pct))}\n"
         f"{kv('Лучшая / Худшая', f'{pnl_colored(result.best_pct)} / {pnl_colored(result.worst_pct)}')}\n"
         f"{section(f'{profit_emoji} Капитал $1000')}\n"
         f"{kv('Итого', f'<b>{money(result.final_capital)}</b>')}\n"
         f"{kv('Прибыль', f'<b>{money(profit)}</b> ({pnl_colored(profit / result.simulated_capital * 100)})')}\n\n"
-        f"<i>10% банка в маржу · 20x · реинвест. Реальная торговля может отличаться.</i>"
+        f"<i>Расчёт: 10% депозита в маржу · 20x · реинвест.</i>"
         f"{history_note}"
         f"{footer()}"
     )
