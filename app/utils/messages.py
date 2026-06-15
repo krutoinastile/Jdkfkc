@@ -486,7 +486,8 @@ def format_backtest_intro(timeframe: str) -> str:
     return (
         f"{header('🔬 Бэктест', 'Симуляция за месяц')}\n\n"
         f"Период: <b>{BACKTEST_DAYS} дней</b>\n"
-        f"Таймфрейм: <b>{timeframe}</b>\n"
+        f"Таймфрейм: <b>{timeframe}</b> "
+        f"{'✅' if timeframe == '1h' else '⚠️ стратегия оптимизирована под 1h'}\n"
         f"Плечо: <b>20x</b> · Капитал: <b>$1,000</b>\n"
         f"Ставка: <b>10% банка</b> на сделку\n\n"
         f"Выберите лимит сделок в день:\n"

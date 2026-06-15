@@ -82,6 +82,8 @@ async def init_database(engine: AsyncEngine) -> None:
             ))
             sync_conn.execute(text(
                 "UPDATE strategy_settings SET "
+                "timeframe = '1h', "
+                "higher_tf = '4h', "
                 "atr_sl_mult = 1.5, "
                 "atr_tp_mult = 4.0, "
                 "use_volume_filter = 1, "
