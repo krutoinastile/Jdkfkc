@@ -1,10 +1,16 @@
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.base import Base
+
+
+class PaymentStatus(StrEnum):
+    PENDING = "pending"
+    PAID = "paid"
+    EXPIRED = "expired"
 
 
 class TradeDirection(StrEnum):
@@ -29,6 +35,9 @@ class User(Base):
     notify_liq_longs: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notify_liq_shorts: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notify_funding: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    subscription_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    referrer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    referral_code: Mapped[str | None] = mapped_column(String(16), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -64,6 +73,81 @@ class Signal(Base):
         nullable=False,
     )
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class BillingSettings(Base):
+    """Singleton billing configuration (row id=1)."""
+
+    __tablename__ = "billing_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cryptopay_api_token: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    cryptopay_testnet: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    subscription_price: Mapped[float] = mapped_column(Float, default=15.0, nullable=False)
+    subscription_asset: Mapped[str] = mapped_column(String(16), default="USDT", nullable=False)
+    subscription_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    discount_percent: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    discount_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    referral_bonus_days: Mapped[int] = mapped_column(Integer, default=7, nullable=False)
+    referral_discount_percent: Mapped[float] = mapped_column(Float, default=10.0, nullable=False)
+    require_subscription_for_signals: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class PaymentInvoice(Base):
+    __tablename__ = "payment_invoices"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    cryptopay_invoice_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
+    amount: Mapped[str] = mapped_column(String(32), nullable=False)
+    asset: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default=PaymentStatus.PENDING.value, index=True)
+    pay_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    payload: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Giveaway(Base):
+    __tablename__ = "giveaways"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    prize_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    winners_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    extra_discount_percent: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    drawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class GiveawayEntry(Base):
+    __tablename__ = "giveaway_entries"
+    __table_args__ = (UniqueConstraint("giveaway_id", "user_id", name="uq_giveaway_user"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id"), index=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
 
 
 class StrategySettings(Base):

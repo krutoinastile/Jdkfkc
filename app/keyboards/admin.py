@@ -9,6 +9,7 @@ def admin_home_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats")],
             [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users:0")],
             [InlineKeyboardButton(text="⚙️ Стратегия", callback_data="admin:strategy")],
+            [InlineKeyboardButton(text="💰 Биллинг", callback_data="admin:billing")],
             [InlineKeyboardButton(text="🔍 Сканировать сейчас", callback_data="admin:scan")],
             [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin:broadcast")],
             [InlineKeyboardButton(text="🔄 Открытые сделки", callback_data="admin:open")],

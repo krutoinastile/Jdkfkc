@@ -14,6 +14,9 @@ USER_MIGRATIONS = (
     ("notify_liq_longs", "BOOLEAN DEFAULT 0"),
     ("notify_liq_shorts", "BOOLEAN DEFAULT 0"),
     ("notify_funding", "BOOLEAN DEFAULT 0"),
+    ("subscription_until", "DATETIME"),
+    ("referrer_id", "INTEGER"),
+    ("referral_code", "VARCHAR(16)"),
 )
 
 STRATEGY_MIGRATIONS = (
@@ -44,6 +47,7 @@ def _migrate_table(sync_conn, table: str, migrations: tuple[tuple[str, str], ...
 
 
 async def init_database(engine: AsyncEngine) -> None:
+    from app.database.billing_repositories import get_billing_settings
     from app.database.repositories import get_strategy_settings
 
     async with engine.begin() as conn:
@@ -73,9 +77,14 @@ async def init_database(engine: AsyncEngine) -> None:
                     "UPDATE signals SET pnl_percent = pnl_percent * 20 "
                     "WHERE pnl_percent IS NOT NULL AND ABS(pnl_percent) < 15"
                 ))
+            sync_conn.execute(text(
+                "UPDATE users SET referral_code = lower(hex(randomblob(4))) "
+                "WHERE referral_code IS NULL OR referral_code = ''"
+            ))
 
         await conn.run_sync(migrate)
 
     pool = create_session_pool(engine)
     async with pool() as session:
         await get_strategy_settings(session)
+        await get_billing_settings(session)

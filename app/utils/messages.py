@@ -33,6 +33,7 @@ def welcome_text() -> str:
             '😱 Fear & Greed · Funding · Open Interest',
             '🔥 Ликвидации Binance Futures',
             '💰 Калькулятор прибыли · Бэктест',
+            '💎 Подписка · Crypto Pay · рефералы',
         ])}\n\n"
         f"<i>⚠️ Не финансовый совет. Торгуйте ответственно.</i>"
         f"{footer()}"

@@ -6,12 +6,15 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from app.config import get_settings
+from app.handlers.admin_billing import router as admin_billing_router
 from app.handlers.admin import router as admin_router
+from app.handlers.subscription import router as subscription_router
 from app.handlers.user import router as user_router
 from app.logging_config import setup_logging
 from app.middlewares.db import DbSessionMiddleware
 from app.database.repositories import ensure_admin_users
 from app.database.session import create_engine, create_session_pool, init_database
+from app.services.subscription import poll_pending_invoices
 from app.services.trade_tracker import setup_scheduler
 from app.services.liquidation_monitor import run_liquidation_monitor
 from app.services.funding_monitor import setup_funding_scheduler
@@ -39,10 +42,21 @@ async def main() -> None:
 
     dispatcher.update.middleware(DbSessionMiddleware(session_pool))
     dispatcher.include_router(admin_router)
+    admin_router.include_router(admin_billing_router)
+    dispatcher.include_router(subscription_router)
     dispatcher.include_router(user_router)
 
     scheduler = setup_scheduler(session_pool, bot, settings)
     scheduler.start()
+
+    async def invoice_poll_job() -> None:
+        async with session_pool() as session:
+            try:
+                await poll_pending_invoices(session, bot)
+            except Exception:
+                logger.exception("Invoice poll failed")
+
+    scheduler.add_job(invoice_poll_job, "interval", seconds=45, id="invoice_poll")
 
     async def startup_scan() -> None:
         async with session_pool() as session:

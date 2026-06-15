@@ -19,7 +19,10 @@ def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🔬 Бэктест", callback_data="menu:backtest"),
         ],
         [
+            InlineKeyboardButton(text="💎 Подписка", callback_data="menu:subscription"),
             InlineKeyboardButton(text="🔔 Алерты", callback_data="menu:settings"),
+        ],
+        [
             InlineKeyboardButton(text="❓ Помощь", callback_data="menu:help"),
         ],
     ]

@@ -9,17 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
 from app.database.models import Signal, TradeStatus
-from app.database.repositories import (
-    can_open_new_signal,
-    close_signal,
-    create_signal,
-    ensure_admin_users,
-    expire_old_signals,
-    get_strategy_settings,
-    has_open_signal,
-    list_open_signals,
-    list_subscribed_users,
-)
+from app.services.subscription import list_premium_notify_users
 from app.services.market_data import Candle, fetch_candles, fetch_current_price
 from app.utils.telegram import send_signal_chart
 from app.services.strategy import analyze_candles
@@ -129,7 +119,7 @@ async def notify_signal(
     admin_ids = set(settings.parsed_admin_ids)
     recipient_ids = set(admin_ids)
     if settings.notify_on_signal:
-        recipient_ids.update(user.tg_id for user in await list_subscribed_users(session))
+        recipient_ids.update(user.tg_id for user in await list_premium_notify_users(session, settings))
 
     for tg_id in recipient_ids:
         try:
@@ -149,7 +139,7 @@ async def notify_trade_closed(
     text = format_trade_closed(signal)
     recipient_ids = set(settings.parsed_admin_ids)
     if settings.notify_on_signal:
-        recipient_ids.update(user.tg_id for user in await list_subscribed_users(session))
+        recipient_ids.update(user.tg_id for user in await list_premium_notify_users(session, settings))
 
     for tg_id in recipient_ids:
         try:

@@ -3,20 +3,45 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database.billing_repositories import generate_referral_code, get_user_by_referral_code
 from app.database.models import Signal, StrategySettings, TradeStatus, User
 
 
-async def get_or_create_user(session: AsyncSession, tg_id: int, username: str | None) -> User:
+async def get_or_create_user(
+    session: AsyncSession,
+    tg_id: int,
+    username: str | None,
+    *,
+    referrer_code: str | None = None,
+) -> User:
     result = await session.execute(select(User).where(User.tg_id == tg_id))
     user = result.scalar_one_or_none()
     if user is None:
-        user = User(tg_id=tg_id, username=username)
+        referrer_id = None
+        if referrer_code:
+            referrer = await get_user_by_referral_code(session, referrer_code)
+            if referrer and referrer.tg_id != tg_id:
+                referrer_id = referrer.id
+        user = User(
+            tg_id=tg_id,
+            username=username,
+            referrer_id=referrer_id,
+            referral_code=generate_referral_code(),
+        )
         session.add(user)
         await session.commit()
         await session.refresh(user)
-    elif user.username != username:
-        user.username = username
-        await session.commit()
+    else:
+        updated = False
+        if user.username != username:
+            user.username = username
+            updated = True
+        if not user.referral_code:
+            user.referral_code = generate_referral_code()
+            updated = True
+        if updated:
+            await session.commit()
+            await session.refresh(user)
     return user
 
 

@@ -2,9 +2,9 @@ import asyncio
 from dataclasses import replace
 
 from aiogram import F, Router
-from aiogram.filters import Command, CommandStart, StateFilter
+from aiogram.filters import Command, CommandObject, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
@@ -43,6 +43,7 @@ from app.services.profit_calc import PERIOD_OPTIONS, period_label as calc_period
 from app.services.sentiment import fetch_fear_greed
 from app.services.strategy import market_snapshot
 from app.services.strategy_config import StrategyConfig
+from app.services.subscription import user_has_signal_access
 from app.services.trade_tracker import format_signal_message
 from app.states.user import CalculatorStates
 from app.utils.messages import (
@@ -62,6 +63,7 @@ from app.utils.messages import (
     help_text,
     welcome_text,
 )
+from app.utils.billing_messages import format_subscription_paywall
 from app.utils.telegram import answer_with_chart
 
 from app.utils.backtest_ui import (
@@ -186,10 +188,23 @@ async def _show_history(
 
 
 @router.message(CommandStart())
-async def start(message: Message, session: AsyncSession, settings: Settings) -> None:
+async def start(
+    message: Message,
+    session: AsyncSession,
+    settings: Settings,
+    command: CommandObject,
+) -> None:
     if message.from_user is None:
         return
-    await get_or_create_user(session, message.from_user.id, message.from_user.username)
+    ref_code = None
+    if command.args and command.args.startswith("ref_"):
+        ref_code = command.args[4:]
+    await get_or_create_user(
+        session,
+        message.from_user.id,
+        message.from_user.username,
+        referrer_code=ref_code,
+    )
     admin = await is_admin(message.from_user.id, settings.parsed_admin_ids)
     await message.answer(welcome_text(), reply_markup=main_menu_keyboard(is_admin=admin))
 
@@ -392,7 +407,20 @@ async def backtest_run(callback: CallbackQuery, session: AsyncSession, settings:
 @router.callback_query(F.data == "menu:signal")
 async def menu_signal(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
     await callback.answer("Загружаю...")
-    if not isinstance(callback.message, Message):
+    if callback.from_user is None or not isinstance(callback.message, Message):
+        return
+
+    user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
+    if not await user_has_signal_access(session, user, settings):
+        await callback.message.answer(
+            format_subscription_paywall(),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="💎 Оформить подписку", callback_data="menu:subscription")],
+                    [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
+                ]
+            ),
+        )
         return
 
     open_signals = await list_open_signals(session)
