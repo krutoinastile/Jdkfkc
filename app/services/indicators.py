@@ -157,3 +157,55 @@ def adx(highs: list[float], lows: list[float], closes: list[float], period: int 
 
     pad = len(closes) - len(adx_vals)
     return [0.0] * pad + adx_vals
+
+
+def bollinger_bands(
+    values: list[float],
+    period: int = 20,
+    std_mult: float = 2.0,
+) -> tuple[list[float], list[float], list[float]]:
+    if len(values) < period:
+        return [], [], []
+    middle = sma(values, period)
+    if not middle:
+        return [], [], []
+    upper: list[float] = [0.0] * (period - 1)
+    lower: list[float] = [0.0] * (period - 1)
+    for i in range(period - 1, len(values)):
+        window = values[i - period + 1 : i + 1]
+        mean = sum(window) / period
+        variance = sum((x - mean) ** 2 for x in window) / period
+        std = variance**0.5
+        upper.append(mean + std_mult * std)
+        lower.append(mean - std_mult * std)
+    return upper, middle, lower
+
+
+def donchian_channel(
+    highs: list[float],
+    lows: list[float],
+    period: int = 20,
+) -> tuple[list[float], list[float], list[float]]:
+    if len(highs) < period:
+        return [], [], []
+    upper: list[float] = [0.0] * (period - 1)
+    lower: list[float] = [0.0] * (period - 1)
+    middle: list[float] = [0.0] * (period - 1)
+    for i in range(period - 1, len(highs)):
+        h_window = highs[i - period + 1 : i + 1]
+        l_window = lows[i - period + 1 : i + 1]
+        hi = max(h_window)
+        lo = min(l_window)
+        upper.append(hi)
+        lower.append(lo)
+        middle.append((hi + lo) / 2)
+    return upper, lower, middle
+
+
+def bb_width_percentile(widths: list[float], lookback: int = 50, pct: float = 0.2) -> float | None:
+    valid = [w for w in widths[-lookback:] if w > 0]
+    if len(valid) < 10:
+        return None
+    sorted_w = sorted(valid)
+    idx = int(len(sorted_w) * pct)
+    return sorted_w[max(0, min(idx, len(sorted_w) - 1))]

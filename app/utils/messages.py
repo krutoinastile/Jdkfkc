@@ -119,6 +119,7 @@ def format_market(
         f"{kv('RSI', rsi_bar(snap['rsi']))}\n"
         f"{kv('MACD', f'<b>{snap['macd']}</b> ({snap['macd_hist']})')}\n"
         f"{kv('ADX', f'<b>{snap.get('adx', '—')}</b>')}\n"
+        f"{kv('Bollinger', f'<b>{snap.get('bb', '—')}</b>')}\n"
         f"{kv('Объём', f'<b>{snap['volume']}</b>')}\n"
         f"{section('EMA')}\n"
         f"{kv('EMA9', money(snap['ema_fast']))}\n"
@@ -173,11 +174,24 @@ def format_dashboard(
     )
 
 
+def _signal_type_label(signal_type: str) -> str:
+    labels = {
+        "crossover": "Пересечение EMA",
+        "pullback": "Откат к EMA",
+        "continuation": "Продолжение тренда",
+        "squeeze": "BB Squeeze",
+        "breakout": "Пробой",
+        "mean_reversion": "Mean Reversion",
+        "momentum": "MACD Momentum",
+    }
+    return labels.get(signal_type, signal_type.replace("_", " ").title())
+
+
 def format_signal_card(signal: Signal, *, is_new: bool = False) -> str:
     is_long = signal.direction == "long"
     dir_badge = badge("LONG · Покупка", style="long") if is_long else badge("SHORT · Продажа", style="short")
     title = "🚨 Новый сигнал" if is_new else "📊 Активный сигнал"
-    type_label = "Пересечение EMA" if signal.signal_type == "crossover" else "Откат к EMA"
+    type_label = _signal_type_label(signal.signal_type)
     strength = getattr(signal, "strength", 0) or 0
 
     risk = abs(signal.entry_price - signal.stop_loss)

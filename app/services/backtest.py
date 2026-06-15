@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from collections.abc import Callable
+
 from app.database.models import TradeStatus
 from app.services.market_data import Candle
 from app.services.strategy import TradeSignal, analyze_candles
 from app.utils.leverage import DEFAULT_BANK_ALLOCATION_PCT, pnl_on_bank, spot_to_leveraged
 from app.services.strategy_config import StrategyConfig
+
+Analyzer = Callable[[list[Candle], StrategyConfig, list[Candle] | None], TradeSignal | None]
 
 
 @dataclass
@@ -112,7 +116,9 @@ def run_backtest(
     *,
     htf_candles: list[Candle] | None = None,
     initial_capital: float = 1000.0,
+    analyzer: Analyzer | None = None,
 ) -> BacktestResult:
+    analyze = analyzer or analyze_candles
     min_i = cfg.ema_trend + 30
     trades: list[BacktestTrade] = []
     open_pos: dict | None = None
@@ -156,7 +162,7 @@ def run_backtest(
                 continue
             window = candles[: i + 1]
             htf = _htf_slice(htf_candles, candle.open_time)
-            signal = analyze_candles(window, cfg, htf_candles=htf)
+            signal = analyze(window, cfg, htf)
             if signal:
                 open_pos = _open_from_signal(signal, open_time=candle.open_time)
                 last_open_time = candle.open_time

@@ -82,11 +82,11 @@ async def init_database(engine: AsyncEngine) -> None:
             ))
             sync_conn.execute(text(
                 "UPDATE strategy_settings SET "
-                "atr_sl_mult = 1.2, "
-                "atr_tp_mult = 3.5, "
+                "atr_sl_mult = 1.5, "
+                "atr_tp_mult = 4.0, "
                 "use_volume_filter = 1, "
                 "htf_strict = 1, "
-                "min_adx = 18, "
+                "min_adx = 16, "
                 "trend_separation_pct = 0.002, "
                 "pullback_atr_mult = 0.55, "
                 "min_signal_strength = 55, "

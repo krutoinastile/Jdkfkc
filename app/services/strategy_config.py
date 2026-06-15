@@ -13,13 +13,13 @@ class StrategyConfig:
     rsi_long_max: float = 68.0
     rsi_short_min: float = 32.0
     rsi_short_max: float = 60.0
-    atr_sl_mult: float = 1.2
-    atr_tp_mult: float = 3.5
+    atr_sl_mult: float = 1.5
+    atr_tp_mult: float = 4.0
     use_macd_filter: bool = True
     use_volume_filter: bool = True
     use_higher_tf: bool = True
     htf_strict: bool = True
-    min_adx: float = 18.0
+    min_adx: float = 16.0
     trend_separation_pct: float = 0.002
     pullback_atr_mult: float = 0.55
     scanning_enabled: bool = True
