@@ -28,7 +28,7 @@ def welcome_text() -> str:
         f"{section('Возможности')}\n"
         f"{bullet_list([
             '📊 Сигналы LONG / SHORT · плечо 20x',
-            '⏱ ~1 сделка в день',
+            '⏱ до 2 сделок в день',
             '📈 EMA · RSI · MACD · ATR стратегия',
             '😱 Fear & Greed · Funding · Open Interest',
             '🔥 Ликвидации Binance Futures',

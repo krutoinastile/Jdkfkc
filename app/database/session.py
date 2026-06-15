@@ -24,8 +24,8 @@ STRATEGY_MIGRATIONS = (
     ("liquidations_enabled", "BOOLEAN DEFAULT 1"),
     ("funding_alerts_enabled", "BOOLEAN DEFAULT 1"),
     ("min_funding_rate_pct", "FLOAT DEFAULT 0.05"),
-    ("min_hours_between_signals", "FLOAT DEFAULT 24"),
-    ("max_signals_per_day", "INTEGER DEFAULT 1"),
+    ("min_hours_between_signals", "FLOAT DEFAULT 12"),
+    ("max_signals_per_day", "INTEGER DEFAULT 2"),
     ("leverage", "INTEGER DEFAULT 20"),
 )
 
@@ -64,10 +64,18 @@ async def init_database(engine: AsyncEngine) -> None:
                 sync_conn.execute(text(
                     "UPDATE strategy_settings SET "
                     "leverage = 20, "
-                    "min_hours_between_signals = 24, "
-                    "max_signals_per_day = 1 "
+                    "min_hours_between_signals = 12, "
+                    "max_signals_per_day = 2 "
                     "WHERE id = 1"
                 ))
+            sync_conn.execute(text(
+                "UPDATE strategy_settings SET "
+                "max_signals_per_day = 2, "
+                "min_hours_between_signals = 12 "
+                "WHERE id = 1 "
+                "AND max_signals_per_day = 1 "
+                "AND min_hours_between_signals = 24"
+            ))
             signals_before = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(signals)")).fetchall()}
             if "leverage" not in signals_before:
                 sync_conn.execute(text(

@@ -18,7 +18,7 @@ from app.database.repositories import (
 from app.filters.admin import AdminFilter
 from app.keyboards.admin import admin_home_keyboard, strategy_keyboard, users_keyboard
 from app.services.trade_tracker import format_signal_message, run_market_scan
-from app.states.admin import AdminStates
+from app.utils.backtest_ui import min_hours_for_max_trades
 
 router = Router(name="admin")
 router.message.filter(AdminFilter())
@@ -223,7 +223,11 @@ async def set_daymax(callback: CallbackQuery, session: AsyncSession) -> None:
     if callback.data is None:
         return
     val = int(callback.data.rsplit(":", maxsplit=1)[-1])
-    cfg = await update_strategy_settings(session, max_signals_per_day=val)
+    cfg = await update_strategy_settings(
+        session,
+        max_signals_per_day=val,
+        min_hours_between_signals=min_hours_for_max_trades(val),
+    )
     await callback.answer(f"Лимит: {val}/день")
     if isinstance(callback.message, Message):
         await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
