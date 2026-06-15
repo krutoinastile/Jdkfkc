@@ -53,14 +53,22 @@ def strategy_text(cfg) -> str:
 
 @router.message(Command("admin"))
 async def admin_cmd(message: Message) -> None:
-    await message.answer("🛠 <b>Админ-панель</b>", reply_markup=admin_home_keyboard())
+    await message.answer(
+        "🛠 <b>Админ-панель</b>\n\n"
+        "<i>💎 Подписка — цена, Crypto Pay, скидки, рефералы, розыгрыш</i>",
+        reply_markup=admin_home_keyboard(),
+    )
 
 
 @router.callback_query(F.data == "admin:home")
 async def admin_home(callback: CallbackQuery) -> None:
     await callback.answer()
     if isinstance(callback.message, Message):
-        await callback.message.answer("🛠 <b>Админ-панель</b>", reply_markup=admin_home_keyboard())
+        await callback.message.answer(
+            "🛠 <b>Админ-панель</b>\n\n"
+            "<i>💎 Подписка — цена, Crypto Pay, скидки, рефералы, розыгрыш</i>",
+            reply_markup=admin_home_keyboard(),
+        )
 
 
 @router.callback_query(F.data == "admin:stats")

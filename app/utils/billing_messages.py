@@ -91,7 +91,7 @@ def format_billing_admin(billing: BillingSettings, *, token_set: bool, giveaway:
             f"{giveaway.prize_days} дн. · −{giveaway.extra_discount_percent:g}%"
         )
     return (
-        f"{header('💰 Биллинг', 'Crypto Pay · подписка')}\n\n"
+        f"{header('💎 Подписка', 'Crypto Pay · тариф · рефералы')}\n\n"
         f"{kv('Crypto Pay token', token_status)}\n"
         f"{kv('Testnet', '✅' if billing.cryptopay_testnet else '❌')}\n"
         f"{kv('Цена', f'<b>{billing.subscription_price:g} {billing.subscription_asset}</b>')}\n"

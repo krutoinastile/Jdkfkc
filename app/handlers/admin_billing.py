@@ -32,6 +32,7 @@ router.callback_query.filter(AdminFilter())
 
 
 @router.callback_query(F.data == "admin:billing")
+@router.callback_query(F.data == "admin:subscription")
 async def admin_billing_home(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     if not isinstance(callback.message, Message):
@@ -93,6 +94,32 @@ async def admin_billing_price_save(message: Message, session: AsyncSession, stat
     billing = await update_billing_settings(session, subscription_price=price)
     await state.clear()
     await message.answer(f"✅ Цена: {price:g} {billing.subscription_asset}", reply_markup=billing_admin_keyboard(billing))
+
+
+@router.callback_query(F.data.regexp(r"^admin:billing:days:\d+$"))
+async def admin_billing_days(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None or not isinstance(callback.message, Message):
+        return
+    days = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    billing = await update_billing_settings(session, subscription_days=days)
+    await callback.answer(f"{days} дн.")
+    await callback.message.edit_text(
+        format_billing_admin(billing, token_set=bool(billing.cryptopay_api_token), giveaway=await get_active_giveaway(session)),
+        reply_markup=billing_admin_keyboard(billing),
+    )
+
+
+@router.callback_query(F.data.regexp(r"^admin:billing:refdisc:\d+$"))
+async def admin_billing_ref_discount(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None or not isinstance(callback.message, Message):
+        return
+    pct = float(callback.data.rsplit(":", maxsplit=1)[-1])
+    billing = await update_billing_settings(session, referral_discount_percent=pct)
+    await callback.answer(f"Реф −{pct:g}%")
+    await callback.message.edit_text(
+        format_billing_admin(billing, token_set=bool(billing.cryptopay_api_token), giveaway=await get_active_giveaway(session)),
+        reply_markup=billing_admin_keyboard(billing),
+    )
 
 
 @router.callback_query(F.data.regexp(r"^admin:billing:price:\d+$"))

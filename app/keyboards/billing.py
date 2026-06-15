@@ -37,15 +37,25 @@ def billing_admin_keyboard(billing) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text=vip_label, callback_data="admin:billing:toggle:vip"),
             ],
             [
-                InlineKeyboardButton(text="$10", callback_data="admin:billing:price:10"),
-                InlineKeyboardButton(text="$15", callback_data="admin:billing:price:15"),
-                InlineKeyboardButton(text="$25", callback_data="admin:billing:price:25"),
+                InlineKeyboardButton(text="💵 $10", callback_data="admin:billing:price:10"),
+                InlineKeyboardButton(text="💵 $15", callback_data="admin:billing:price:15"),
+                InlineKeyboardButton(text="💵 $25", callback_data="admin:billing:price:25"),
             ],
             [InlineKeyboardButton(text="✏️ Своя цена", callback_data="admin:billing:price:custom")],
+            [
+                InlineKeyboardButton(text="📅 30 дн.", callback_data="admin:billing:days:30"),
+                InlineKeyboardButton(text="📅 60 дн.", callback_data="admin:billing:days:60"),
+                InlineKeyboardButton(text="📅 90 дн.", callback_data="admin:billing:days:90"),
+            ],
             [
                 InlineKeyboardButton(text="Скидка 10%", callback_data="admin:billing:disc:10"),
                 InlineKeyboardButton(text="Скидка 20%", callback_data="admin:billing:disc:20"),
                 InlineKeyboardButton(text=discount_label, callback_data="admin:billing:toggle:discount"),
+            ],
+            [
+                InlineKeyboardButton(text="Реф −5%", callback_data="admin:billing:refdisc:5"),
+                InlineKeyboardButton(text="Реф −10%", callback_data="admin:billing:refdisc:10"),
+                InlineKeyboardButton(text="Реф −15%", callback_data="admin:billing:refdisc:15"),
             ],
             [
                 InlineKeyboardButton(text="Реф +3д", callback_data="admin:billing:ref:3"),
