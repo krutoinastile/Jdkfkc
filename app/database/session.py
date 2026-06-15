@@ -9,6 +9,16 @@ SIGNAL_MIGRATIONS = (
     ("macd_hist", "FLOAT"),
 )
 
+USER_MIGRATIONS = (
+    ("notify_liq_longs", "BOOLEAN DEFAULT 0"),
+    ("notify_liq_shorts", "BOOLEAN DEFAULT 0"),
+)
+
+STRATEGY_MIGRATIONS = (
+    ("min_liquidation_usd", "FLOAT DEFAULT 50000"),
+    ("liquidations_enabled", "BOOLEAN DEFAULT 1"),
+)
+
 
 def create_engine(database_url: str) -> AsyncEngine:
     return create_async_engine(database_url, echo=False)
@@ -16,6 +26,14 @@ def create_engine(database_url: str) -> AsyncEngine:
 
 def create_session_pool(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(engine, expire_on_commit=False)
+
+
+def _migrate_table(sync_conn, table: str, migrations: tuple[tuple[str, str], ...]) -> None:
+    rows = sync_conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+    existing = {row[1] for row in rows}
+    for column, ddl in migrations:
+        if column not in existing:
+            sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
 
 
 async def init_database(engine: AsyncEngine) -> None:
@@ -26,11 +44,9 @@ async def init_database(engine: AsyncEngine) -> None:
 
     async with engine.begin() as conn:
         def migrate(sync_conn) -> None:
-            rows = sync_conn.execute(text("PRAGMA table_info(signals)")).fetchall()
-            existing = {row[1] for row in rows}
-            for column, ddl in SIGNAL_MIGRATIONS:
-                if column not in existing:
-                    sync_conn.execute(text(f"ALTER TABLE signals ADD COLUMN {column} {ddl}"))
+            _migrate_table(sync_conn, "signals", SIGNAL_MIGRATIONS)
+            _migrate_table(sync_conn, "users", USER_MIGRATIONS)
+            _migrate_table(sync_conn, "strategy_settings", STRATEGY_MIGRATIONS)
 
         await conn.run_sync(migrate)
 

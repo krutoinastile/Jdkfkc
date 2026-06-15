@@ -12,6 +12,7 @@ from app.logging_config import setup_logging
 from app.middlewares.db import DbSessionMiddleware
 from app.database.session import create_engine, create_session_pool, init_database
 from app.services.trade_tracker import setup_scheduler
+from app.services.liquidation_monitor import run_liquidation_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +39,14 @@ async def main() -> None:
     scheduler = setup_scheduler(session_pool, bot, settings)
     scheduler.start()
 
+    liq_task = asyncio.create_task(run_liquidation_monitor(bot, session_pool))
+
     logger.info("Starting BTC trading bot (symbol=%s, tf=%s)", settings.symbol, settings.timeframe)
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dispatcher.start_polling(bot)
     finally:
+        liq_task.cancel()
         scheduler.shutdown(wait=False)
         await bot.session.close()
         await engine.dispose()

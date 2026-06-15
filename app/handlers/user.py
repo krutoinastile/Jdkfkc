@@ -11,9 +11,9 @@ from app.database.repositories import (
     is_admin,
     list_open_signals,
     list_recent_signals,
-    toggle_notifications,
+    toggle_user_flag,
 )
-from app.keyboards.user import back_keyboard, history_keyboard, main_menu_keyboard
+from app.keyboards.user import back_keyboard, history_keyboard, main_menu_keyboard, settings_keyboard, settings_text
 from app.services.market_data import fetch_candles
 from app.services.strategy import market_snapshot
 from app.services.strategy_config import StrategyConfig
@@ -157,20 +157,36 @@ async def menu_history(callback: CallbackQuery, session: AsyncSession, settings:
     await callback.message.answer("\n".join(lines), reply_markup=history_keyboard(page, has_more))
 
 
-@router.callback_query(F.data == "menu:notify")
-async def menu_notify(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
-    if callback.from_user is None:
+@router.callback_query(F.data == "menu:settings")
+async def menu_settings(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if callback.from_user is None or not isinstance(callback.message, Message):
         return
     user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
-    user = await toggle_notifications(session, user)
-    state = "включены" if user.notify_signals else "выключены"
-    admin = await is_admin(callback.from_user.id, settings.parsed_admin_ids)
-    await callback.answer(f"Уведомления {state}")
+    await callback.message.answer(settings_text(user), reply_markup=settings_keyboard(user))
+
+
+@router.callback_query(F.data.startswith("settings:toggle:"))
+async def toggle_setting(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.from_user is None or callback.data is None:
+        return
+    field = callback.data.split(":")[-1]
+    allowed = {"notify_signals", "notify_liq_longs", "notify_liq_shorts"}
+    if field not in allowed:
+        await callback.answer("Неизвестная настройка.", show_alert=True)
+        return
+
+    user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
+    user = await toggle_user_flag(session, user, field)
+    await callback.answer("Сохранено")
     if isinstance(callback.message, Message):
-        await callback.message.answer(
-            f"🔔 Уведомления о сигналах: <b>{state}</b>",
-            reply_markup=main_menu_keyboard(is_admin=admin),
-        )
+        await callback.message.edit_text(settings_text(user), reply_markup=settings_keyboard(user))
+
+
+# backward compat
+@router.callback_query(F.data == "menu:notify")
+async def menu_notify_legacy(callback: CallbackQuery, session: AsyncSession) -> None:
+    await menu_settings(callback, session)
 
 
 @router.message(Command("stats"))

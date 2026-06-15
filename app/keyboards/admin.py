@@ -47,6 +47,17 @@ def strategy_keyboard(cfg: StrategySettings) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="Сила: 60", callback_data="admin:strategy:str:60"),
                 InlineKeyboardButton(text="Сила: 70", callback_data="admin:strategy:str:70"),
             ],
+            [
+                InlineKeyboardButton(
+                    text=_toggle("Ликвидации", cfg.liquidations_enabled),
+                    callback_data="admin:strategy:toggle:liq",
+                ),
+            ],
+            [
+                InlineKeyboardButton(text="Liq $50k", callback_data="admin:strategy:liqmin:50000"),
+                InlineKeyboardButton(text="Liq $100k", callback_data="admin:strategy:liqmin:100000"),
+                InlineKeyboardButton(text="Liq $250k", callback_data="admin:strategy:liqmin:250000"),
+            ],
             [InlineKeyboardButton(text="◀️ Админ", callback_data="admin:home")],
         ]
     )

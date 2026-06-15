@@ -26,6 +26,8 @@ class User(Base):
     tg_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
     username: Mapped[str | None] = mapped_column(String(255))
     notify_signals: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_liq_longs: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    notify_liq_shorts: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -85,6 +87,8 @@ class StrategySettings(Base):
     use_higher_tf: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     scanning_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     min_signal_strength: Mapped[int] = mapped_column(default=60, nullable=False)
+    min_liquidation_usd: Mapped[float] = mapped_column(Float, default=50_000.0, nullable=False)
+    liquidations_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

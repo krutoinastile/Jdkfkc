@@ -32,6 +32,25 @@ async def toggle_notifications(session: AsyncSession, user: User) -> User:
     return user
 
 
+async def toggle_user_flag(session: AsyncSession, user: User, field: str) -> User:
+    if not hasattr(user, field):
+        raise ValueError(f"Unknown field: {field}")
+    setattr(user, field, not getattr(user, field))
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+async def list_users_notify_liq_longs(session: AsyncSession) -> list[User]:
+    result = await session.execute(select(User).where(User.notify_liq_longs.is_(True)))
+    return list(result.scalars().all())
+
+
+async def list_users_notify_liq_shorts(session: AsyncSession) -> list[User]:
+    result = await session.execute(select(User).where(User.notify_liq_shorts.is_(True)))
+    return list(result.scalars().all())
+
+
 async def has_open_signal(session: AsyncSession, symbol: str) -> bool:
     result = await session.execute(
         select(Signal.id)

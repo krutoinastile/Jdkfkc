@@ -38,6 +38,9 @@ def strategy_text(cfg) -> str:
         f"Объём фильтр: {'✅' if cfg.use_volume_filter else '❌'}\n"
         f"HTF подтверждение: {'✅' if cfg.use_higher_tf else '❌'}\n"
         f"Автоскан: {'✅' if cfg.scanning_enabled else '❌'}\n\n"
+        f"<b>Ликвидации</b>\n"
+        f"Мониторинг: {'✅' if cfg.liquidations_enabled else '❌'}\n"
+        f"Мин. сумма: <b>${cfg.min_liquidation_usd:,.0f}</b>\n\n"
         "<i>Стратегия: тренд EMA + пересечение/откат + MACD + объём + 4H</i>"
     )
 
@@ -86,7 +89,12 @@ async def admin_users(callback: CallbackQuery, session: AsyncSession) -> None:
     for u in users:
         name = u.username or u.tg_id
         notify = "🔔" if u.notify_signals else "🔕"
-        lines.append(f"{notify} {name} (<code>{u.tg_id}</code>)")
+        liq = ""
+        if u.notify_liq_longs:
+            liq += " L"
+        if u.notify_liq_shorts:
+            liq += " S"
+        lines.append(f"{notify}{liq} {name} (<code>{u.tg_id}</code>)")
     await callback.message.answer(
         "\n".join(lines) if users else "Пользователей нет.",
         reply_markup=users_keyboard(page, total, PAGE_SIZE),
@@ -111,12 +119,17 @@ async def toggle_scan(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
 
 
-@router.callback_query(F.data.regexp(r"^admin:strategy:toggle:(macd|vol|htf)$"))
+@router.callback_query(F.data.regexp(r"^admin:strategy:toggle:(macd|vol|htf|liq)$"))
 async def toggle_filter(callback: CallbackQuery, session: AsyncSession) -> None:
     if callback.data is None:
         return
     key = callback.data.rsplit(":", maxsplit=1)[-1]
-    field_map = {"macd": "use_macd_filter", "vol": "use_volume_filter", "htf": "use_higher_tf"}
+    field_map = {
+        "macd": "use_macd_filter",
+        "vol": "use_volume_filter",
+        "htf": "use_higher_tf",
+        "liq": "liquidations_enabled",
+    }
     cfg = await get_strategy_settings(session)
     field = field_map[key]
     cfg = await update_strategy_settings(session, **{field: not getattr(cfg, field)})
@@ -154,6 +167,17 @@ async def set_tp(callback: CallbackQuery, session: AsyncSession) -> None:
     val = float(callback.data.rsplit(":", maxsplit=1)[-1])
     cfg = await update_strategy_settings(session, atr_tp_mult=val)
     await callback.answer(f"TP: {val}×ATR")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data.regexp(r"^admin:strategy:liqmin:\d+$"))
+async def set_liq_min(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    val = float(callback.data.rsplit(":", maxsplit=1)[-1])
+    cfg = await update_strategy_settings(session, min_liquidation_usd=val)
+    await callback.answer(f"Мин. ликвидация: ${val:,.0f}")
     if isinstance(callback.message, Message):
         await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
 
