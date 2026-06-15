@@ -13,12 +13,14 @@ from app.database.repositories import (
     close_signal,
     create_signal,
     expire_old_signals,
+    get_strategy_settings,
     has_open_signal,
     list_open_signals,
     list_subscribed_users,
 )
 from app.services.market_data import fetch_candles, fetch_current_price
 from app.services.strategy import analyze_candles
+from app.services.strategy_config import StrategyConfig
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +32,13 @@ def format_signal_message(signal: Signal, *, is_new: bool = False) -> str:
     risk = abs(signal.entry_price - signal.stop_loss)
     reward = abs(signal.take_profit - signal.entry_price)
     rr = round(reward / risk, 2) if risk > 0 else 0
+    type_label = "Пересечение" if signal.signal_type == "crossover" else "Откат"
+    strength = getattr(signal, "strength", 0) or 0
 
     return (
         f"{header}\n\n"
         f"{emoji} <b>{action}</b> | BTC/USDT\n"
+        f"Тип: <b>{type_label}</b> | Сила: <b>{strength}/100</b>\n"
         f"Таймфрейм: {signal.timeframe}\n\n"
         f"💰 Вход: <b>${signal.entry_price:,.2f}</b>\n"
         f"🛑 Stop-Loss: <b>${signal.stop_loss:,.2f}</b>\n"
@@ -45,19 +50,30 @@ def format_signal_message(signal: Signal, *, is_new: bool = False) -> str:
     )
 
 
-async def scan_for_signal(session: AsyncSession, settings: Settings) -> Signal | None:
+async def run_market_scan(
+    session: AsyncSession,
+    settings: Settings,
+    bot: Bot,
+    *,
+    force: bool = False,
+) -> Signal | None:
+    db_cfg = await get_strategy_settings(session)
+    if not db_cfg.scanning_enabled and not force:
+        return None
     if await has_open_signal(session, settings.symbol):
         return None
 
-    candles = await fetch_candles(settings.symbol, settings.timeframe)
-    trade_signal = analyze_candles(candles)
+    cfg = StrategyConfig.from_db(db_cfg)
+    candles = await fetch_candles(settings.symbol, cfg.timeframe)
+    htf_candles = await fetch_candles(settings.symbol, cfg.higher_tf) if cfg.use_higher_tf else None
+    trade_signal = analyze_candles(candles, cfg, htf_candles=htf_candles)
     if trade_signal is None:
         return None
 
-    return await create_signal(
+    signal = await create_signal(
         session,
         symbol=settings.symbol,
-        timeframe=settings.timeframe,
+        timeframe=cfg.timeframe,
         direction=trade_signal.direction,
         entry_price=trade_signal.entry_price,
         stop_loss=trade_signal.stop_loss,
@@ -67,7 +83,13 @@ async def scan_for_signal(session: AsyncSession, settings: Settings) -> Signal |
         ema_slow=trade_signal.ema_slow,
         atr=trade_signal.atr_value,
         reason=trade_signal.reason,
+        signal_type=trade_signal.signal_type,
+        strength=trade_signal.strength,
+        macd_hist=trade_signal.macd_hist,
     )
+    if settings.notify_on_signal:
+        await notify_signal(bot, session, signal)
+    return signal
 
 
 async def check_open_trades(session: AsyncSession, settings: Settings) -> list[Signal]:
@@ -137,9 +159,7 @@ def setup_scheduler(session_pool: async_sessionmaker[AsyncSession], bot: Bot, se
     async def scan_job() -> None:
         async with session_pool() as session:
             try:
-                signal = await scan_for_signal(session, settings)
-                if signal and settings.notify_on_signal:
-                    await notify_signal(bot, session, signal)
+                await run_market_scan(session, settings, bot)
             except Exception:
                 logger.exception("Scan job failed")
 

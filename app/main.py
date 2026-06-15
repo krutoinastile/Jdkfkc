@@ -6,6 +6,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from app.config import get_settings
+from app.handlers.admin import router as admin_router
 from app.handlers.user import router as user_router
 from app.logging_config import setup_logging
 from app.middlewares.db import DbSessionMiddleware
@@ -31,6 +32,7 @@ async def main() -> None:
     dispatcher["settings"] = settings
 
     dispatcher.update.middleware(DbSessionMiddleware(session_pool))
+    dispatcher.include_router(admin_router)
     dispatcher.include_router(user_router)
 
     scheduler = setup_scheduler(session_pool, bot, settings)

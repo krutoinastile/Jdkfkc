@@ -1,16 +1,17 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 
-def main_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Точка входа", callback_data="menu:signal")],
-            [InlineKeyboardButton(text="💹 Рынок BTC", callback_data="menu:market")],
-            [InlineKeyboardButton(text="📈 Статистика", callback_data="menu:stats")],
-            [InlineKeyboardButton(text="📜 История сделок", callback_data="menu:history:0")],
-            [InlineKeyboardButton(text="🔔 Уведомления", callback_data="menu:notify")],
-        ]
-    )
+def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="📊 Точка входа", callback_data="menu:signal")],
+        [InlineKeyboardButton(text="💹 Рынок BTC", callback_data="menu:market")],
+        [InlineKeyboardButton(text="📈 Статистика", callback_data="menu:stats")],
+        [InlineKeyboardButton(text="📜 История сделок", callback_data="menu:history:0")],
+        [InlineKeyboardButton(text="🔔 Уведомления", callback_data="menu:notify")],
+    ]
+    if is_admin:
+        rows.append([InlineKeyboardButton(text="🛠 Админ-панель", callback_data="admin:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def back_keyboard() -> InlineKeyboardMarkup:

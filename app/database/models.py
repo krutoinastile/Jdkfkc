@@ -48,6 +48,9 @@ class Signal(Base):
     ema_slow: Mapped[float] = mapped_column(Float, nullable=False)
     atr: Mapped[float] = mapped_column(Float, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
+    signal_type: Mapped[str] = mapped_column(String(32), default="crossover", nullable=False)
+    strength: Mapped[int] = mapped_column(default=0, nullable=False)
+    macd_hist: Mapped[float | None] = mapped_column(Float)
     status: Mapped[str] = mapped_column(String(16), default=TradeStatus.OPEN.value, index=True)
     exit_price: Mapped[float | None] = mapped_column(Float)
     pnl_percent: Mapped[float | None] = mapped_column(Float)
@@ -57,3 +60,34 @@ class Signal(Base):
         nullable=False,
     )
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class StrategySettings(Base):
+    """Singleton strategy configuration (row id=1), editable from admin panel."""
+
+    __tablename__ = "strategy_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    timeframe: Mapped[str] = mapped_column(String(8), default="1h", nullable=False)
+    higher_tf: Mapped[str] = mapped_column(String(8), default="4h", nullable=False)
+    ema_fast: Mapped[int] = mapped_column(default=9, nullable=False)
+    ema_slow: Mapped[int] = mapped_column(default=21, nullable=False)
+    ema_trend: Mapped[int] = mapped_column(default=55, nullable=False)
+    rsi_period: Mapped[int] = mapped_column(default=14, nullable=False)
+    rsi_long_min: Mapped[float] = mapped_column(Float, default=40.0, nullable=False)
+    rsi_long_max: Mapped[float] = mapped_column(Float, default=65.0, nullable=False)
+    rsi_short_min: Mapped[float] = mapped_column(Float, default=35.0, nullable=False)
+    rsi_short_max: Mapped[float] = mapped_column(Float, default=60.0, nullable=False)
+    atr_sl_mult: Mapped[float] = mapped_column(Float, default=1.5, nullable=False)
+    atr_tp_mult: Mapped[float] = mapped_column(Float, default=3.0, nullable=False)
+    use_macd_filter: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    use_volume_filter: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    use_higher_tf: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    scanning_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    min_signal_strength: Mapped[int] = mapped_column(default=60, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )

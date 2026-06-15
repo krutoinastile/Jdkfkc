@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import Signal, TradeStatus, User
+from app.database.models import Signal, StrategySettings, TradeStatus, User
 
 
 async def get_or_create_user(session: AsyncSession, tg_id: int, username: str | None) -> User:
@@ -127,3 +127,55 @@ async def expire_old_signals(session: AsyncSession, max_age_hours: int = 72) -> 
     for signal in signals:
         await close_signal(session, signal, status=TradeStatus.EXPIRED.value, exit_price=signal.entry_price, pnl_percent=0.0)
     return len(signals)
+
+
+async def is_admin(tg_id: int, env_admin_ids: tuple[int, ...]) -> bool:
+    return tg_id in env_admin_ids
+
+
+async def count_users(session: AsyncSession) -> int:
+    result = await session.execute(select(func.count(User.id)))
+    return int(result.scalar_one())
+
+
+async def list_users(session: AsyncSession, limit: int = 20, offset: int = 0) -> list[User]:
+    result = await session.execute(
+        select(User).order_by(User.created_at.desc()).offset(offset).limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def get_strategy_settings(session: AsyncSession) -> StrategySettings:
+    result = await session.execute(select(StrategySettings).where(StrategySettings.id == 1))
+    row = result.scalar_one_or_none()
+    if row is None:
+        row = StrategySettings(id=1)
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+    return row
+
+
+async def update_strategy_settings(session: AsyncSession, **fields: object) -> StrategySettings:
+    settings = await get_strategy_settings(session)
+    for key, value in fields.items():
+        if hasattr(settings, key):
+            setattr(settings, key, value)
+    await session.commit()
+    await session.refresh(settings)
+    return settings
+
+
+async def get_signal_by_id(session: AsyncSession, signal_id: int) -> Signal | None:
+    result = await session.execute(select(Signal).where(Signal.id == signal_id))
+    return result.scalar_one_or_none()
+
+
+async def force_close_signal(session: AsyncSession, signal: Signal, exit_price: float) -> Signal:
+    if signal.direction == "long":
+        pnl = (exit_price - signal.entry_price) / signal.entry_price * 100
+    else:
+        pnl = (signal.entry_price - exit_price) / signal.entry_price * 100
+    status = TradeStatus.WIN.value if pnl > 0 else TradeStatus.LOSS.value
+    return await close_signal(session, signal, status=status, exit_price=exit_price, pnl_percent=pnl)
+
