@@ -21,6 +21,8 @@ from app.database.repositories import (
 )
 from app.keyboards.user import (
     back_keyboard,
+    backtest_period_keyboard,
+    backtest_result_keyboard,
     calculator_amount_keyboard,
     calculator_period_keyboard,
     calculator_result_keyboard,
@@ -43,6 +45,7 @@ from app.services.strategy_config import StrategyConfig
 from app.services.trade_tracker import format_signal_message
 from app.states.user import CalculatorStates
 from app.utils.messages import (
+    format_backtest_intro,
     format_backtest_result,
     format_calculator_empty,
     format_calculator_intro,
@@ -60,12 +63,11 @@ from app.utils.messages import (
 )
 from app.utils.telegram import answer_with_chart
 
-from app.utils.history import parse_history_callback
+from app.utils.backtest_ui import BACKTEST_PERIODS, candles_for_period, htf_candles_for_period, period_label
 
 router = Router(name="user")
 
 PAGE_SIZE = 5
-BACKTEST_CANDLES = 400
 
 
 async def _cfg(session: AsyncSession) -> StrategyConfig:
@@ -312,18 +314,32 @@ async def calc_custom_amount(message: Message, session: AsyncSession, state: FSM
 
 @router.callback_query(F.data == "menu:backtest")
 async def menu_backtest(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
-    await callback.answer("Считаю бэктест...")
+    await callback.answer()
     if not isinstance(callback.message, Message):
+        return
+    cfg = await _cfg(session)
+    await callback.message.answer(
+        format_backtest_intro(cfg.timeframe),
+        reply_markup=backtest_period_keyboard(),
+    )
+
+
+async def _run_backtest(message: Message, session: AsyncSession, settings: Settings, days: int) -> None:
+    if days not in BACKTEST_PERIODS:
+        await message.answer("Неизвестный период.", reply_markup=back_keyboard())
         return
 
     cfg = await _cfg(session)
+    limit = candles_for_period(days, cfg.timeframe)
+    htf_limit = htf_candles_for_period(days, cfg.higher_tf) if cfg.use_higher_tf else 0
+
     if cfg.use_higher_tf:
         candles, htf_candles = await asyncio.gather(
-            fetch_candles(settings.symbol, cfg.timeframe, limit=BACKTEST_CANDLES),
-            fetch_candles(settings.symbol, cfg.higher_tf, limit=BACKTEST_CANDLES // 4 + 60),
+            fetch_candles(settings.symbol, cfg.timeframe, limit=limit),
+            fetch_candles(settings.symbol, cfg.higher_tf, limit=htf_limit),
         )
     else:
-        candles = await fetch_candles(settings.symbol, cfg.timeframe, limit=BACKTEST_CANDLES)
+        candles = await fetch_candles(settings.symbol, cfg.timeframe, limit=limit)
         htf_candles = None
 
     result = await asyncio.to_thread(
@@ -333,8 +349,17 @@ async def menu_backtest(callback: CallbackQuery, session: AsyncSession, settings
         htf_candles=htf_candles,
         initial_capital=1000.0,
     )
-    text = format_backtest_result(result, timeframe=cfg.timeframe, bars=len(candles))
-    await callback.message.answer(text, reply_markup=refresh_keyboard("menu:backtest"))
+    text = format_backtest_result(result, timeframe=cfg.timeframe, days=days, bars=len(candles))
+    await message.answer(text, reply_markup=backtest_result_keyboard(days))
+
+
+@router.callback_query(F.data.regexp(r"^backtest:run:\d+$"))
+async def backtest_run(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    if callback.data is None or not isinstance(callback.message, Message):
+        return
+    days = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    await callback.answer(f"Считаю {period_label(days)}...")
+    await _run_backtest(callback.message, session, settings, days)
 
 
 @router.callback_query(F.data == "menu:signal")

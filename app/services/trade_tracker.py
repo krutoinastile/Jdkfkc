@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config import Settings
 from app.database.models import Signal, TradeStatus
 from app.database.repositories import (
+    can_open_new_signal,
     close_signal,
     create_signal,
     expire_old_signals,
@@ -40,7 +41,18 @@ async def run_market_scan(
     db_cfg = await get_strategy_settings(session)
     if not db_cfg.scanning_enabled and not force:
         return None
-    if await has_open_signal(session, settings.symbol):
+
+    if not force:
+        allowed, reason = await can_open_new_signal(
+            session,
+            settings.symbol,
+            min_hours=db_cfg.min_hours_between_signals,
+            max_per_day=db_cfg.max_signals_per_day,
+        )
+        if not allowed:
+            logger.debug("Signal skipped: %s", reason)
+            return None
+    elif await has_open_signal(session, settings.symbol):
         return None
 
     cfg = StrategyConfig.from_db(db_cfg)

@@ -66,6 +66,53 @@ async def has_open_signal(session: AsyncSession, symbol: str) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+async def count_signals_today(session: AsyncSession, symbol: str) -> int:
+    today_start = datetime.now(tz=UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    result = await session.execute(
+        select(func.count(Signal.id))
+        .where(Signal.symbol == symbol)
+        .where(Signal.opened_at >= today_start)
+    )
+    return int(result.scalar_one())
+
+
+async def hours_since_last_signal(session: AsyncSession, symbol: str) -> float | None:
+    result = await session.execute(
+        select(Signal.opened_at)
+        .where(Signal.symbol == symbol)
+        .order_by(Signal.opened_at.desc())
+        .limit(1)
+    )
+    last = result.scalar_one_or_none()
+    if last is None:
+        return None
+    delta = datetime.now(tz=UTC) - last
+    return delta.total_seconds() / 3600
+
+
+async def can_open_new_signal(
+    session: AsyncSession,
+    symbol: str,
+    *,
+    min_hours: float,
+    max_per_day: int,
+) -> tuple[bool, str]:
+    if await has_open_signal(session, symbol):
+        return False, "open_trade"
+
+    if max_per_day > 0:
+        today_count = await count_signals_today(session, symbol)
+        if today_count >= max_per_day:
+            return False, "daily_limit"
+
+    if min_hours > 0:
+        since = await hours_since_last_signal(session, symbol)
+        if since is not None and since < min_hours:
+            return False, "cooldown"
+
+    return True, "ok"
+
+
 async def create_signal(session: AsyncSession, **fields: object) -> Signal:
     signal = Signal(**fields)
     session.add(signal)

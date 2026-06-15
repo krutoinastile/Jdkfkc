@@ -28,6 +28,34 @@ def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def backtest_period_keyboard() -> InlineKeyboardMarkup:
+    from app.utils.backtest_ui import BACKTEST_PERIODS
+
+    rows = [
+        [
+            InlineKeyboardButton(text=f"📅 {label}", callback_data=f"backtest:run:{days}")
+            for days, label in list(BACKTEST_PERIODS.items())[:2]
+        ],
+        [
+            InlineKeyboardButton(text=f"📅 {label}", callback_data=f"backtest:run:{days}")
+            for days, label in list(BACKTEST_PERIODS.items())[2:]
+        ],
+        [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def backtest_result_keyboard(days: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📅 Другой период", callback_data="menu:backtest"),
+                InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home"),
+            ],
+        ]
+    )
+
+
 def refresh_keyboard(refresh_data: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

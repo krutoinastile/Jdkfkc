@@ -16,10 +16,12 @@ class StrategyConfig:
     atr_sl_mult: float = 1.5
     atr_tp_mult: float = 3.0
     use_macd_filter: bool = True
-    use_volume_filter: bool = True
+    use_volume_filter: bool = False
     use_higher_tf: bool = True
     scanning_enabled: bool = True
-    min_signal_strength: int = 60
+    min_signal_strength: int = 50
+    min_hours_between_signals: float = 20.0
+    max_signals_per_day: int = 1
 
     @classmethod
     def from_db(cls, row) -> "StrategyConfig":
@@ -41,4 +43,6 @@ class StrategyConfig:
             use_higher_tf=row.use_higher_tf,
             scanning_enabled=row.scanning_enabled,
             min_signal_strength=row.min_signal_strength,
+            min_hours_between_signals=getattr(row, "min_hours_between_signals", 20.0),
+            max_signals_per_day=getattr(row, "max_signals_per_day", 1),
         )

@@ -20,6 +20,8 @@ STRATEGY_MIGRATIONS = (
     ("liquidations_enabled", "BOOLEAN DEFAULT 1"),
     ("funding_alerts_enabled", "BOOLEAN DEFAULT 1"),
     ("min_funding_rate_pct", "FLOAT DEFAULT 0.05"),
+    ("min_hours_between_signals", "FLOAT DEFAULT 20"),
+    ("max_signals_per_day", "INTEGER DEFAULT 1"),
 )
 
 
@@ -47,9 +49,19 @@ async def init_database(engine: AsyncEngine) -> None:
 
     async with engine.begin() as conn:
         def migrate(sync_conn) -> None:
+            strategy_before = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(strategy_settings)")).fetchall()}
             _migrate_table(sync_conn, "signals", SIGNAL_MIGRATIONS)
             _migrate_table(sync_conn, "users", USER_MIGRATIONS)
             _migrate_table(sync_conn, "strategy_settings", STRATEGY_MIGRATIONS)
+            if "min_hours_between_signals" not in strategy_before:
+                sync_conn.execute(text(
+                    "UPDATE strategy_settings SET "
+                    "min_signal_strength = 50, "
+                    "use_volume_filter = 0, "
+                    "min_hours_between_signals = 20, "
+                    "max_signals_per_day = 1 "
+                    "WHERE id = 1"
+                ))
 
         await conn.run_sync(migrate)
 

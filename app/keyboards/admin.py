@@ -48,6 +48,15 @@ def strategy_keyboard(cfg: StrategySettings) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="Сила: 70", callback_data="admin:strategy:str:70"),
             ],
             [
+                InlineKeyboardButton(text="1/день", callback_data="admin:strategy:daymax:1"),
+                InlineKeyboardButton(text="2/день", callback_data="admin:strategy:daymax:2"),
+                InlineKeyboardButton(text="Пауза 20ч", callback_data="admin:strategy:cooldown:20"),
+            ],
+            [
+                InlineKeyboardButton(text="Пауза 24ч", callback_data="admin:strategy:cooldown:24"),
+                InlineKeyboardButton(text="Пауза 12ч", callback_data="admin:strategy:cooldown:12"),
+            ],
+            [
                 InlineKeyboardButton(
                     text=_toggle("Ликвидации", cfg.liquidations_enabled),
                     callback_data="admin:strategy:toggle:liq",

@@ -47,7 +47,7 @@ def help_text() -> str:
             'Рынок — цена, индикаторы + график',
             'Статистика — win rate и P&L',
             'Калькулятор — прибыль за период с выбранным капиталом',
-            'Бэктест — проверка на истории',
+            'Бэктест — проверка на 30д / 90д / 6м / 1г',
             'История — прошлые сделки',
             'Уведомления — сигналы, ликвидации, funding',
         ])}\n"
@@ -454,34 +454,71 @@ def format_calculator_empty(*, days: int | None = None) -> str:
     )
 
 
-def format_backtest_result(result, *, timeframe: str, bars: int) -> str:  # noqa: ANN001
+def format_backtest_intro(timeframe: str) -> str:
+    from app.utils.backtest_ui import BACKTEST_PERIODS
+
+    periods = " · ".join(BACKTEST_PERIODS.values())
+    return (
+        f"{header('🔬 Бэктест', 'Симуляция на истории')}\n\n"
+        f"Таймфрейм стратегии: <b>{timeframe}</b>\n"
+        f"Капитал в симуляции: <b>$1,000</b>\n\n"
+        f"Выберите период:\n"
+        f"   {periods}\n\n"
+        f"<i>Стратегия прогоняется на исторических свечах\n"
+        f"с теми же правилами, что и live-бот.</i>"
+        f"{footer()}"
+    )
+
+
+def format_backtest_result(result, *, timeframe: str, days: int, bars: int) -> str:  # noqa: ANN001
     from app.services.backtest import BacktestResult
+    from app.utils.backtest_ui import period_days_from_candles, period_label
 
     if not isinstance(result, BacktestResult):
         raise TypeError("result must be BacktestResult")
 
+    label = period_label(days)
+    covered = period_days_from_candles(bars, timeframe)
+    history_note = ""
+    if covered < days * 0.85:
+        history_note = (
+            f"\n<i>⚠️ Биржа отдала ~{covered:.0f} дн. истории "
+            f"(максимум доступных данных).</i>"
+        )
+
     if not result.trades:
         return (
-            f"{header('🔬 Бэктест', f'{timeframe} · {bars} свечей')}\n\n"
+            f"{header('🔬 Бэктест', f'{label} · {timeframe}')}\n\n"
+            f"📊 Свечей загружено: <b>{bars}</b> (~{covered} дн.)\n\n"
             f"За выбранный период сигналов не найдено.\n"
-            f"<i>Попробуйте другой таймфрейм в админке.</i>"
+            f"<i>Попробуйте больший период или снизьте\n"
+            f"мин. силу сигнала в админке.</i>"
+            f"{history_note}"
+            f"{footer()}"
         )
 
     profit = result.final_capital - result.simulated_capital
     profit_emoji = "📈" if profit >= 0 else "📉"
+    trades_per_month = len(result.trades) / max(covered, 1) * 30
 
     return (
-        f"{header('🔬 Бэктест стратегии', f'{timeframe} · {bars} свечей')}\n"
+        f"{header('🔬 Бэктест', f'{label} · {timeframe}')}\n"
+        f"{section('Период')}\n"
+        f"{kv('Запрошено', f'<b>{label}</b>')}\n"
+        f"{kv('Свечей', f'<b>{bars}</b> (~{covered} дн.)')}\n"
+        f"{kv('~Сделок/мес', f'<b>{trades_per_month:.1f}</b>')}\n"
         f"{section('Сделки')}\n"
-        f"  Всего: <b>{len(result.trades)}</b>\n"
-        f"  ✅ {result.wins} · ❌ {result.losses}\n"
-        f"  Win Rate: {win_rate_bar(result.win_rate)}\n"
+        f"{kv('Всего', f'<b>{len(result.trades)}</b>')}\n"
+        f"{kv('Результат', f'✅ {result.wins} · ❌ {result.losses}')}\n"
+        f"{kv('Win Rate', win_rate_bar(result.win_rate))}\n"
         f"{section('P&L')}\n"
-        f"  Суммарно: <b>{pnl(result.total_pnl_pct)}</b>\n"
-        f"  Средняя сделка: <b>{pnl(result.avg_pnl_pct)}</b>\n"
-        f"  Лучшая / Худшая: <b>{pnl(result.best_pct)}</b> / <b>{pnl(result.worst_pct)}</b>\n"
+        f"{kv('Суммарно', pnl_colored(result.total_pnl_pct))}\n"
+        f"{kv('Средняя', pnl_colored(result.avg_pnl_pct))}\n"
+        f"{kv('Лучшая / Худшая', f'{pnl_colored(result.best_pct)} / {pnl_colored(result.worst_pct)}')}\n"
         f"{section(f'{profit_emoji} Капитал $1000')}\n"
-        f"  Итого: <b>{money(result.final_capital)}</b>\n"
-        f"  Прибыль: <b>{money(profit)}</b> ({pnl(profit / result.simulated_capital * 100)})\n\n"
+        f"{kv('Итого', f'<b>{money(result.final_capital)}</b>')}\n"
+        f"{kv('Прибыль', f'<b>{money(profit)}</b> ({pnl_colored(profit / result.simulated_capital * 100)})')}\n\n"
         f"<i>Симуляция на истории. Реальная торговля может отличаться.</i>"
+        f"{history_note}"
+        f"{footer()}"
     )
