@@ -44,6 +44,17 @@ async def main() -> None:
     scheduler = setup_scheduler(session_pool, bot, settings)
     scheduler.start()
 
+    async def startup_scan() -> None:
+        async with session_pool() as session:
+            try:
+                from app.services.trade_tracker import run_market_scan
+
+                await run_market_scan(session, settings, bot)
+            except Exception:
+                logger.exception("Startup market scan failed")
+
+    asyncio.create_task(startup_scan())
+
     funding_scheduler = setup_funding_scheduler(session_pool, bot, settings)
     funding_scheduler.start()
 

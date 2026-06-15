@@ -19,6 +19,7 @@ class BacktestTrade:
     pnl_percent: float
     status: str
     strength: int
+    open_time: int
 
 
 @dataclass
@@ -34,6 +35,8 @@ class BacktestResult:
     candles_analyzed: int
     simulated_capital: float
     final_capital: float
+    max_trades_per_day: int = 0
+    avg_trades_per_day: float = 0.0
 
 
 def _htf_slice(htf_candles: list[Candle] | None, up_to_time: int) -> list[Candle] | None:
@@ -49,31 +52,33 @@ def _close_trade(
     tp: float,
     candle: Candle,
     strength: int,
+    open_time: int,
 ) -> BacktestTrade | None:
     if direction == "long":
         if candle.low <= sl:
             pnl = (sl - entry) / entry * 100
-            return BacktestTrade(direction, entry, sl, pnl, TradeStatus.LOSS.value, strength)
+            return BacktestTrade(direction, entry, sl, pnl, TradeStatus.LOSS.value, strength, open_time)
         if candle.high >= tp:
             pnl = (tp - entry) / entry * 100
-            return BacktestTrade(direction, entry, tp, pnl, TradeStatus.WIN.value, strength)
+            return BacktestTrade(direction, entry, tp, pnl, TradeStatus.WIN.value, strength, open_time)
     else:
         if candle.high >= sl:
             pnl = (entry - sl) / entry * 100
-            return BacktestTrade(direction, entry, sl, pnl, TradeStatus.LOSS.value, strength)
+            return BacktestTrade(direction, entry, sl, pnl, TradeStatus.LOSS.value, strength, open_time)
         if candle.low <= tp:
             pnl = (entry - tp) / entry * 100
-            return BacktestTrade(direction, entry, tp, pnl, TradeStatus.WIN.value, strength)
+            return BacktestTrade(direction, entry, tp, pnl, TradeStatus.WIN.value, strength, open_time)
     return None
 
 
-def _open_from_signal(signal: TradeSignal) -> dict:
+def _open_from_signal(signal: TradeSignal, *, open_time: int) -> dict:
     return {
         "direction": signal.direction,
         "entry": signal.entry_price,
         "sl": signal.stop_loss,
         "tp": signal.take_profit,
         "strength": signal.strength,
+        "open_time": open_time,
     }
 
 
@@ -131,6 +136,7 @@ def run_backtest(
                 open_pos["tp"],
                 candle,
                 open_pos["strength"],
+                open_pos["open_time"],
             )
             if closed:
                 closed.pnl_percent = spot_to_leveraged(closed.pnl_percent, cfg.leverage)
@@ -151,7 +157,7 @@ def run_backtest(
             htf = _htf_slice(htf_candles, candle.open_time)
             signal = analyze_candles(window, cfg, htf_candles=htf)
             if signal:
-                open_pos = _open_from_signal(signal)
+                open_pos = _open_from_signal(signal, open_time=candle.open_time)
                 last_open_time = candle.open_time
                 signals_today += 1
 
@@ -161,6 +167,14 @@ def run_backtest(
     closed = wins + losses
     win_rate = (wins / closed * 100) if closed else 0.0
     total_pnl = sum(pnls) if pnls else 0.0
+
+    per_day: dict[int, int] = {}
+    for trade in trades:
+        day = _utc_day(trade.open_time)
+        per_day[day] = per_day.get(day, 0) + 1
+    max_trades_per_day = max(per_day.values()) if per_day else 0
+    span_days = max((candles[-1].open_time - candles[min_i].open_time) / 86_400_000, 1)
+    avg_trades_per_day = len(trades) / span_days
 
     return BacktestResult(
         trades=trades,
@@ -174,4 +188,6 @@ def run_backtest(
         candles_analyzed=len(candles) - min_i,
         simulated_capital=initial_capital,
         final_capital=round(capital, 2),
+        max_trades_per_day=max_trades_per_day,
+        avg_trades_per_day=round(avg_trades_per_day, 2),
     )

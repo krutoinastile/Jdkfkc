@@ -469,11 +469,11 @@ def format_backtest_intro(timeframe: str) -> str:
         f"{header('🔬 Бэктест', 'Симуляция на истории')}\n\n"
         f"Таймфрейм стратегии: <b>{timeframe}</b>\n"
         f"Плечо: <b>20x</b> · Капитал: <b>$1,000</b>\n"
-        f"Лимит: <b>~1 сделка в день</b> · пауза <b>24ч</b>\n\n"
+        f"Лимит: <b>до 1 сделки в день</b> · пауза <b>24ч</b>\n\n"
         f"Выберите период:\n"
         f"   {periods}\n\n"
-        f"<i>Как в live-боте: не больше 1 входа в сутки,\n"
-        f"минимум 24ч между сигналами, одна открытая сделка.</i>"
+        f"<i>«1 в день» = максимум, не гарантия каждый календарный день.\n"
+        f"Сделка только когда стратегия видит вход на рынке.</i>"
         f"{footer()}"
     )
 
@@ -496,8 +496,8 @@ def format_backtest_result(result, *, timeframe: str, days: int, bars: int) -> s
         )
     elif result.trades:
         history_note = (
-            f"\n<i>ℹ️ ~{covered:.0f} дн. · {len(result.trades)} сделок "
-            f"(~{trades_per_month:.1f}/мес · лимит 1/день · 20x · 100% банка).</i>"
+            f"\n<i>ℹ️ Лимит: до 1 сделки в сутки (не каждый день есть сигнал).\n"
+            f"~{covered:.0f} дн. · {len(result.trades)} сделок · 20x · 100% банка.</i>"
         )
 
     if not result.trades:
@@ -521,6 +521,7 @@ def format_backtest_result(result, *, timeframe: str, days: int, bars: int) -> s
         f"{kv('Запрошено', f'<b>{label}</b>')}\n"
         f"{kv('Свечей', f'<b>{bars}</b> (~{covered} дн.)')}\n"
         f"{kv('~Сделок/мес', f'<b>{trades_per_month:.1f}</b>')}\n"
+        f"{kv('Лимит 1/день', f'макс <b>{result.max_trades_per_day}</b> · ср. <b>{result.avg_trades_per_day:.2f}</b>/день')}\n"
         f"{section('Сделки')}\n"
         f"{kv('Всего', f'<b>{len(result.trades)}</b>')}\n"
         f"{kv('Результат', f'✅ {result.wins} · ❌ {result.losses}')}\n"

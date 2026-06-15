@@ -133,10 +133,9 @@ async def notify_signal(
 
     for tg_id in recipient_ids:
         try:
+            await bot.send_message(chat_id=tg_id, text=text)
             if tg_id in admin_ids and candles and cfg:
-                await send_signal_chart(bot, tg_id, text, candles, cfg, signal)
-            else:
-                await bot.send_message(chat_id=tg_id, text=text)
+                await send_signal_chart(bot, tg_id, candles, cfg, signal)
         except Exception:
             logger.exception("Failed to notify user %s", tg_id)
 
