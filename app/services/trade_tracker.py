@@ -9,6 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
 from app.database.models import Signal, TradeStatus
+from app.database.repositories import (
+    can_open_new_signal,
+    close_signal,
+    create_signal,
+    expire_old_signals,
+    get_strategy_settings,
+    has_open_signal,
+    list_open_signals,
+)
 from app.services.subscription import list_premium_notify_users
 from app.services.market_data import Candle, fetch_candles, fetch_current_price
 from app.utils.telegram import send_signal_chart
