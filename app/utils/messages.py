@@ -531,6 +531,7 @@ def format_backtest_result(
         f"{section('Настройки')}\n"
         f"{kv('Период', f'<b>{label}</b>')}\n"
         f"{kv('Лимит', f'<b>{limit_label}</b>')}\n"
+        f"{kv('Ставка', f'<b>10% банка</b> · <b>20x</b>')}\n"
         f"{kv('Свечей', f'<b>{bars}</b> (~{covered} дн.)')}\n"
         f"{kv('~Сделок/мес', f'<b>{trades_per_month:.1f}</b>')}\n"
         f"{kv('Факт макс/день', f'<b>{result.max_trades_per_day}</b> · ср. <b>{result.avg_trades_per_day:.2f}</b>')}\n"

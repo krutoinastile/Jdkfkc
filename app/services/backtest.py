@@ -164,10 +164,11 @@ def run_backtest(
 
     wins = sum(1 for t in trades if t.status == TradeStatus.WIN.value)
     losses = len(trades) - wins
-    pnls = [t.pnl_percent for t in trades]
+    margin_pnls = [t.pnl_percent for t in trades]
+    bank_pnls = [pnl_on_bank(p, DEFAULT_BANK_ALLOCATION_PCT) for p in margin_pnls]
     closed = wins + losses
     win_rate = (wins / closed * 100) if closed else 0.0
-    total_pnl = sum(pnls) if pnls else 0.0
+    total_pnl = sum(bank_pnls) if bank_pnls else 0.0
 
     per_day: dict[int, int] = {}
     for trade in trades:
