@@ -23,6 +23,7 @@ def strategy_keyboard(cfg: StrategySettings) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=scan_label, callback_data="admin:strategy:toggle_scan")],
             [
+                InlineKeyboardButton(text="TF: 15M", callback_data="admin:strategy:tf:15m"),
                 InlineKeyboardButton(text="TF: 1H", callback_data="admin:strategy:tf:1h"),
                 InlineKeyboardButton(text="TF: 4H", callback_data="admin:strategy:tf:4h"),
             ],

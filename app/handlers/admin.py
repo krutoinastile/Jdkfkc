@@ -146,12 +146,18 @@ async def toggle_filter(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
 
 
-@router.callback_query(F.data.regexp(r"^admin:strategy:tf:(1h|4h)$"))
+@router.callback_query(F.data.regexp(r"^admin:strategy:tf:(15m|1h|4h)$"))
 async def set_tf(callback: CallbackQuery, session: AsyncSession) -> None:
     if callback.data is None:
         return
     tf = callback.data.rsplit(":", maxsplit=1)[-1]
-    cfg = await update_strategy_settings(session, timeframe=tf)
+    cfg = await get_strategy_settings(session)
+    updates: dict[str, object] = {"timeframe": tf}
+    if tf == "15m":
+        updates["higher_tf"] = "1h"
+    elif tf == "1h" and cfg.higher_tf == "15m":
+        updates["higher_tf"] = "4h"
+    cfg = await update_strategy_settings(session, **updates)
     await callback.answer(f"TF: {tf}")
     if isinstance(callback.message, Message):
         await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))

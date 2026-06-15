@@ -21,6 +21,7 @@ class Candle:
 
 
 INTERVAL_MAP = {
+    "15m": {"binance": "15m", "bybit": "15", "okx": "15m"},
     "1h": {"binance": "1h", "bybit": "60", "okx": "1H"},
     "4h": {"binance": "4h", "bybit": "240", "okx": "4H"},
     "1d": {"binance": "1d", "bybit": "D", "okx": "1D"},

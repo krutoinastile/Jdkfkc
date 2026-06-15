@@ -12,7 +12,7 @@ BACKTEST_MAX_TRADES: dict[int, str] = {
     10: "10 в день",
 }
 
-BARS_PER_DAY = {"1h": 24, "4h": 6, "1d": 1}
+BARS_PER_DAY = {"15m": 96, "1h": 24, "4h": 6, "1d": 1}
 WARMUP_BARS = 90
 MAX_CANDLES = 9000
 
