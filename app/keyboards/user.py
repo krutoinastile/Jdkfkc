@@ -39,27 +39,55 @@ def refresh_keyboard(refresh_data: str) -> InlineKeyboardMarkup:
     )
 
 
-def calculator_keyboard() -> InlineKeyboardMarkup:
+def calculator_period_keyboard(counts: dict[int, int]) -> InlineKeyboardMarkup:
+    from app.services.profit_calc import PERIOD_OPTIONS
+
+    rows: list[list[InlineKeyboardButton]] = []
+    period_keys = [7, 30, 90, 180, 0]
+    for i in range(0, len(period_keys), 2):
+        row = []
+        for days in period_keys[i : i + 2]:
+            label = PERIOD_OPTIONS[days]
+            count = counts.get(days, 0)
+            suffix = f" ({count})" if count else ""
+            row.append(InlineKeyboardButton(
+                text=f"📅 {label}{suffix}",
+                callback_data=f"calc:period:{days}",
+            ))
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def calculator_amount_keyboard(days: int) -> InlineKeyboardMarkup:
     presets = [100, 500, 1000, 5000, 10000]
     rows = [
         [
-            InlineKeyboardButton(text=f"💵 ${p:,}", callback_data=f"calc:amount:{p}")
+            InlineKeyboardButton(text=f"💵 ${p:,}", callback_data=f"calc:run:{days}:{p}")
             for p in presets[:3]
         ],
         [
-            InlineKeyboardButton(text=f"💵 ${p:,}", callback_data=f"calc:amount:{p}")
+            InlineKeyboardButton(text=f"💵 ${p:,}", callback_data=f"calc:run:{days}:{p}")
             for p in presets[3:]
         ],
-        [InlineKeyboardButton(text="✏️  Своя сумма", callback_data="calc:custom")],
-        [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
+        [InlineKeyboardButton(text="✏️  Своя сумма", callback_data=f"calc:custom:{days}")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:calculator")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def calculator_result_keyboard(amount: int) -> InlineKeyboardMarkup:
+def calculator_keyboard() -> InlineKeyboardMarkup:
+    """Legacy alias — use calculator_period_keyboard."""
+    return calculator_period_keyboard({0: 0})
+
+
+def calculator_result_keyboard(days: int, amount: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔁 Другая сумма", callback_data="menu:calculator")],
+            [
+                InlineKeyboardButton(text="📅 Период", callback_data="menu:calculator"),
+                InlineKeyboardButton(text="💵 Сумма", callback_data=f"calc:period:{days}"),
+            ],
             [
                 InlineKeyboardButton(text="🔬 Бэктест", callback_data="menu:backtest"),
                 InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home"),

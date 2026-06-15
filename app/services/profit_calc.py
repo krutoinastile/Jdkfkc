@@ -6,6 +6,18 @@ from dataclasses import dataclass
 
 from app.database.models import Signal, TradeStatus
 
+PERIOD_OPTIONS: dict[int, str] = {
+    7: "7 дней",
+    30: "30 дней",
+    90: "90 дней",
+    180: "180 дней",
+    0: "Всё время",
+}
+
+
+def period_label(days: int) -> str:
+    return PERIOD_OPTIONS.get(days, f"{days} дн.")
+
 
 @dataclass
 class ProfitSimulation:
@@ -22,6 +34,8 @@ class ProfitSimulation:
     best_trade_pct: float
     worst_trade_pct: float
     avg_trade_pct: float
+    period_days: int
+    total_in_period: int
 
 
 def _closed_trades(signals: list[Signal]) -> list[Signal]:
@@ -33,7 +47,13 @@ def _closed_trades(signals: list[Signal]) -> list[Signal]:
     return sorted(closed, key=lambda s: s.opened_at)
 
 
-def simulate_profit(signals: list[Signal], initial_capital: float) -> ProfitSimulation | None:
+def simulate_profit(
+    signals: list[Signal],
+    initial_capital: float,
+    *,
+    period_days: int = 0,
+    total_in_period: int = 0,
+) -> ProfitSimulation | None:
     trades = _closed_trades(signals)
     if not trades:
         return None
@@ -67,4 +87,6 @@ def simulate_profit(signals: list[Signal], initial_capital: float) -> ProfitSimu
         best_trade_pct=round(max(pnls), 2),
         worst_trade_pct=round(min(pnls), 2),
         avg_trade_pct=round(sum(pnls) / len(pnls), 2),
+        period_days=period_days,
+        total_in_period=total_in_period or len(trades),
     )

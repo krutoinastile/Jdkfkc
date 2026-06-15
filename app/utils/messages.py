@@ -46,7 +46,7 @@ def help_text() -> str:
             'Сигнал — активная точка входа + график',
             'Рынок — цена, индикаторы + график',
             'Статистика — win rate и P&L',
-            'Калькулятор — сколько бы вы заработали',
+            'Калькулятор — прибыль за период с выбранным капиталом',
             'Бэктест — проверка на истории',
             'История — прошлые сделки',
             'Уведомления — сигналы, ликвидации, funding',
@@ -287,51 +287,78 @@ def _format_derivatives(deriv: dict | None) -> str:
     )
 
 
-def format_calculator_intro(closed_count: int) -> str:
+def format_calculator_intro(total_closed: int) -> str:
     return (
-        f"{header('💰 Калькулятор прибыли', 'Симуляция по сигналам бота')}\n\n"
-        f"Закрытых сделок в базе: <b>{closed_count}</b>\n\n"
-        f"Выберите стартовый капитал или введите свою сумму.\n"
-        f"Расчёт покажет результат при следовании <b>всем</b> сигналам бота.\n\n"
-        f"<i>Два режима: сложный % (реинвест) и фиксированный %.</i>"
+        f"{header('💰 Калькулятор прибыли', 'Шаг 1 из 2 — выберите период')}\n\n"
+        f"Закрытых сделок всего: <b>{total_closed}</b>\n\n"
+        f"Выберите период, за который хотите посчитать,\n"
+        f"сколько бы вы заработали, следуя сигналам бота.\n\n"
+        f"<i>В скобках — число сделок за период.</i>"
+        f"{footer()}"
     )
 
 
-def format_calculator_result(sim, *, closed_count: int) -> str:  # noqa: ANN001
-    from app.services.profit_calc import ProfitSimulation
+def format_calculator_period_step(days: int, trade_count: int) -> str:
+    from app.services.profit_calc import period_label
+
+    label = period_label(days)
+    return (
+        f"{header('💰 Калькулятор прибыли', 'Шаг 2 из 2 — стартовый капитал')}\n\n"
+        f"📅 Период: <b>{label}</b>\n"
+        f"Сделок за период: <b>{trade_count}</b>\n\n"
+        f"Выберите сумму, с которой вы бы начали,\n"
+        f"или введите свою."
+        f"{footer()}"
+    )
+
+
+def format_calculator_result(sim) -> str:  # noqa: ANN001
+    from app.services.profit_calc import ProfitSimulation, period_label
 
     if not isinstance(sim, ProfitSimulation):
         raise TypeError("sim must be ProfitSimulation")
 
     win_bar = win_rate_bar(sim.wins / sim.trades * 100 if sim.trades else 0)
     profit_emoji = "📈" if sim.profit_compound >= 0 else "📉"
+    period = period_label(sim.period_days)
 
     return (
-        f"{header(f'{profit_emoji} Результат калькулятора', f'Капитал {money(sim.initial_capital)}')}\n"
+        f"{header(f'{profit_emoji} Результат', f'{period} · старт {money(sim.initial_capital)}')}\n"
+        f"{section('Заработок')}\n"
+        f"{kv('📅 Период', f'<b>{period}</b>')}\n"
+        f"{kv('💵 Старт', f'<b>{money(sim.initial_capital)}</b>')}\n"
+        f"{kv('💰 Итого', f'<b>{money(sim.final_compound)}</b>')}\n"
+        f"{kv('📊 Прибыль', f'<b>{money(sim.profit_compound)}</b> ({pnl_colored(sim.profit_pct_compound)})')}\n"
         f"{section('Сделки')}\n"
-        f"  Учтено: <b>{sim.trades}</b> из {closed_count}\n"
-        f"  ✅ {sim.wins} · ❌ {sim.losses}\n"
-        f"  Win Rate: {win_bar}\n"
-        f"{section('Сложный % (реинвест)')}\n"
-        f"  Итого: <b>{money(sim.final_compound)}</b>\n"
-        f"  Прибыль: <b>{money(sim.profit_compound)}</b> ({pnl(sim.profit_pct_compound)})\n"
-        f"{section('Фиксированный %')}\n"
-        f"  Итого: <b>{money(sim.final_fixed)}</b>\n"
-        f"  Прибыль: <b>{money(sim.profit_fixed)}</b> ({pnl(sim.profit_pct_fixed)})\n"
+        f"{kv('Учтено', f'<b>{sim.trades}</b> из {sim.total_in_period}')}\n"
+        f"{kv('Результат', f'✅ {sim.wins} · ❌ {sim.losses}')}\n"
+        f"{kv('Win Rate', win_bar)}\n"
+        f"{section('Альт. расчёт (без реинвеста)')}\n"
+        f"{kv('Итого', f'<b>{money(sim.final_fixed)}</b>')}\n"
+        f"{kv('Прибыль', f'{money(sim.profit_fixed)} ({pnl_colored(sim.profit_pct_fixed)})')}\n"
         f"{section('По сделкам')}\n"
-        f"  Лучшая: <b>{pnl(sim.best_trade_pct)}</b>\n"
-        f"  Худшая: <b>{pnl(sim.worst_trade_pct)}</b>\n"
-        f"  Средняя: <b>{pnl(sim.avg_trade_pct)}</b>\n\n"
+        f"{kv('Лучшая', pnl_colored(sim.best_trade_pct))}\n"
+        f"{kv('Худшая', pnl_colored(sim.worst_trade_pct))}\n"
+        f"{kv('Средняя', pnl_colored(sim.avg_trade_pct))}\n\n"
         f"<i>⚠️ Прошлые результаты не гарантируют будущую доходность.</i>"
+        f"{footer()}"
     )
 
 
-def format_calculator_empty() -> str:
+def format_calculator_empty(*, days: int | None = None) -> str:
+    from app.services.profit_calc import period_label
+
+    period_line = ""
+    if days is not None:
+        period_line = f"\n📅 Период: <b>{period_label(days)}</b>\n"
     return (
-        f"{header('💰 Калькулятор прибыли', 'Пока нет данных')}\n\n"
-        f"Закрытых сделок ещё нет — калькулятор заработает,\n"
-        f"когда бот закроет первые сигналы по TP или SL.\n\n"
+        f"{header('💰 Калькулятор прибыли', 'Нет сделок за период')}\n"
+        f"{period_line}\n"
+        f"За выбранный период закрытых сделок нет.\n"
+        f"Попробуйте больший период или дождитесь\n"
+        f"закрытия сигналов по TP / SL.\n\n"
         f"<i>Можете посмотреть бэктест на исторических данных.</i>"
+        f"{footer()}"
     )
 
 

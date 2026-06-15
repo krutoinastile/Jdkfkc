@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.database.repositories import (
+    count_closed_signals,
     get_or_create_user,
     get_statistics,
     get_strategy_settings,
@@ -19,7 +20,8 @@ from app.database.repositories import (
 )
 from app.keyboards.user import (
     back_keyboard,
-    calculator_keyboard,
+    calculator_amount_keyboard,
+    calculator_period_keyboard,
     calculator_result_keyboard,
     history_keyboard,
     main_menu_keyboard,
@@ -32,7 +34,7 @@ from app.services.backtest import run_backtest
 from app.services.derivatives import fetch_derivatives_stats
 from app.services.funding import fetch_funding_rate
 from app.services.market_data import fetch_candles
-from app.services.profit_calc import simulate_profit
+from app.services.profit_calc import PERIOD_OPTIONS, period_label, simulate_profit
 from app.services.sentiment import fetch_fear_greed
 from app.services.strategy import market_snapshot
 from app.services.strategy_config import StrategyConfig
@@ -42,6 +44,7 @@ from app.utils.messages import (
     format_backtest_result,
     format_calculator_empty,
     format_calculator_intro,
+    format_calculator_period_step,
     format_calculator_result,
     format_dashboard,
     format_history,
@@ -75,20 +78,47 @@ async def _market_context(session: AsyncSession, settings: Settings) -> tuple:
     return cfg, candles, snap, fear_greed, funding, derivatives
 
 
-async def _run_calculation(message: Message, session: AsyncSession, amount: float) -> None:
-    signals = await list_closed_signals(session)
+async def _period_counts(session: AsyncSession) -> dict[int, int]:
+    counts: dict[int, int] = {}
+    for days in PERIOD_OPTIONS:
+        counts[days] = await count_closed_signals(session, days=None if days == 0 else days)
+    return counts
+
+
+async def _run_calculation(
+    message: Message,
+    session: AsyncSession,
+    amount: float,
+    *,
+    days: int = 0,
+) -> None:
+    period_days = days if days > 0 else 0
+    total_in_period = await count_closed_signals(session, days=None if period_days == 0 else period_days)
+    signals = await list_closed_signals(session, days=None if period_days == 0 else period_days)
+
     if not signals:
-        await message.answer(format_calculator_empty(), reply_markup=calculator_keyboard())
+        await message.answer(
+            format_calculator_empty(days=period_days),
+            reply_markup=calculator_period_keyboard(await _period_counts(session)),
+        )
         return
 
-    sim = simulate_profit(signals, amount)
+    sim = simulate_profit(
+        signals,
+        amount,
+        period_days=period_days,
+        total_in_period=total_in_period,
+    )
     if sim is None:
-        await message.answer(format_calculator_empty(), reply_markup=calculator_keyboard())
+        await message.answer(
+            format_calculator_empty(days=period_days),
+            reply_markup=calculator_period_keyboard(await _period_counts(session)),
+        )
         return
 
     await message.answer(
-        format_calculator_result(sim, closed_count=len(signals)),
-        reply_markup=calculator_result_keyboard(int(amount)),
+        format_calculator_result(sim),
+        reply_markup=calculator_result_keyboard(period_days, int(amount)),
     )
 
 
@@ -152,30 +182,54 @@ async def menu_calculator(callback: CallbackQuery, session: AsyncSession, state:
     if not isinstance(callback.message, Message):
         return
 
-    signals = await list_closed_signals(session)
+    counts = await _period_counts(session)
+    total = counts.get(0, 0)
     await callback.message.answer(
-        format_calculator_intro(len(signals)),
-        reply_markup=calculator_keyboard(),
+        format_calculator_intro(total),
+        reply_markup=calculator_period_keyboard(counts),
     )
 
 
-@router.callback_query(F.data.regexp(r"^calc:amount:\d+$"))
-async def calc_preset(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+@router.callback_query(F.data.regexp(r"^calc:period:\d+$"))
+async def calc_select_period(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     await state.clear()
     await callback.answer()
     if callback.data is None or not isinstance(callback.message, Message):
         return
-    amount = float(callback.data.rsplit(":", maxsplit=1)[-1])
-    await _run_calculation(callback.message, session, amount)
+
+    days = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    trade_count = await count_closed_signals(session, days=None if days == 0 else days)
+    await callback.message.answer(
+        format_calculator_period_step(days, trade_count),
+        reply_markup=calculator_amount_keyboard(days),
+    )
 
 
-@router.callback_query(F.data == "calc:custom")
+@router.callback_query(F.data.regexp(r"^calc:run:\d+:\d+$"))
+async def calc_run(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    await callback.answer("Считаю...")
+    if callback.data is None or not isinstance(callback.message, Message):
+        return
+
+    _, _, days_str, amount_str = callback.data.split(":", maxsplit=3)
+    await _run_calculation(callback.message, session, float(amount_str), days=int(days_str))
+
+
+@router.callback_query(F.data.regexp(r"^calc:custom:\d+$"))
 async def calc_custom_start(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
+    if callback.data is None:
+        return
+    days = int(callback.data.rsplit(":", maxsplit=1)[-1])
     await state.set_state(CalculatorStates.waiting_amount)
+    await state.update_data(period_days=days)
     if isinstance(callback.message, Message):
+        label = period_label(days)
         await callback.message.answer(
-            "Введите сумму в USD (например: <b>2500</b>)\n\n/cancel — отмена",
+            f"📅 Период: <b>{label}</b>\n\n"
+            f"Введите стартовый капитал в USD (например: <b>2500</b>)\n\n"
+            f"/cancel — отмена",
         )
 
 
@@ -198,8 +252,10 @@ async def calc_custom_amount(message: Message, session: AsyncSession, state: FSM
         await message.answer("Сумма должна быть от $10 до $10,000,000")
         return
 
+    data = await state.get_data()
+    days = int(data.get("period_days", 0))
     await state.clear()
-    await _run_calculation(message, session, amount)
+    await _run_calculation(message, session, amount, days=days)
 
 
 @router.callback_query(F.data == "menu:backtest")
@@ -357,6 +413,10 @@ async def signal_cmd(message: Message, session: AsyncSession, settings: Settings
 
 
 @router.message(Command("calc"))
-async def calc_cmd(message: Message, session: AsyncSession) -> None:
-    signals = await list_closed_signals(session)
-    await message.answer(format_calculator_intro(len(signals)), reply_markup=calculator_keyboard())
+async def calc_cmd(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    counts = await _period_counts(session)
+    await message.answer(
+        format_calculator_intro(counts.get(0, 0)),
+        reply_markup=calculator_period_keyboard(counts),
+    )

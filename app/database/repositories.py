@@ -88,15 +88,36 @@ async def list_recent_signals(session: AsyncSession, limit: int = 10) -> list[Si
     return list(result.scalars().all())
 
 
-async def list_closed_signals(session: AsyncSession, limit: int = 200) -> list[Signal]:
-    result = await session.execute(
+async def list_closed_signals(
+    session: AsyncSession,
+    *,
+    days: int | None = None,
+    limit: int = 500,
+) -> list[Signal]:
+    query = (
         select(Signal)
         .where(Signal.status.in_((TradeStatus.WIN.value, TradeStatus.LOSS.value)))
         .where(Signal.pnl_percent.is_not(None))
-        .order_by(Signal.opened_at.asc())
-        .limit(limit)
     )
+    if days and days > 0:
+        cutoff = datetime.now(tz=UTC) - timedelta(days=days)
+        query = query.where(func.coalesce(Signal.closed_at, Signal.opened_at) >= cutoff)
+    query = query.order_by(Signal.opened_at.asc()).limit(limit)
+    result = await session.execute(query)
     return list(result.scalars().all())
+
+
+async def count_closed_signals(session: AsyncSession, *, days: int | None = None) -> int:
+    query = (
+        select(func.count(Signal.id))
+        .where(Signal.status.in_((TradeStatus.WIN.value, TradeStatus.LOSS.value)))
+        .where(Signal.pnl_percent.is_not(None))
+    )
+    if days and days > 0:
+        cutoff = datetime.now(tz=UTC) - timedelta(days=days)
+        query = query.where(func.coalesce(Signal.closed_at, Signal.opened_at) >= cutoff)
+    result = await session.execute(query)
+    return int(result.scalar_one())
 
 
 async def close_signal(
