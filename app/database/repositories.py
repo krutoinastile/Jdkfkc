@@ -88,6 +88,17 @@ async def list_recent_signals(session: AsyncSession, limit: int = 10) -> list[Si
     return list(result.scalars().all())
 
 
+async def list_closed_signals(session: AsyncSession, limit: int = 200) -> list[Signal]:
+    result = await session.execute(
+        select(Signal)
+        .where(Signal.status.in_((TradeStatus.WIN.value, TradeStatus.LOSS.value)))
+        .where(Signal.pnl_percent.is_not(None))
+        .order_by(Signal.opened_at.asc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
 async def close_signal(
     session: AsyncSession,
     signal: Signal,

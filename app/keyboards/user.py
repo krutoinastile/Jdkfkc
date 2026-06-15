@@ -14,12 +14,68 @@ def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📈 Статистика", callback_data="menu:stats"),
             InlineKeyboardButton(text="📜 История", callback_data="menu:history:0"),
         ],
+        [
+            InlineKeyboardButton(text="💰 Калькулятор", callback_data="menu:calculator"),
+            InlineKeyboardButton(text="🔬 Бэктест", callback_data="menu:backtest"),
+        ],
         [InlineKeyboardButton(text="🔔 Уведомления", callback_data="menu:settings")],
         [InlineKeyboardButton(text="❓ Помощь", callback_data="menu:help")],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text="🛠 Админ-панель", callback_data="admin:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def refresh_keyboard(refresh_data: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🔄 Обновить", callback_data=refresh_data),
+                InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home"),
+            ],
+        ]
+    )
+
+
+def calculator_keyboard() -> InlineKeyboardMarkup:
+    presets = [100, 500, 1000, 5000, 10000]
+    rows = [
+        [
+            InlineKeyboardButton(text=f"${p:,}", callback_data=f"calc:amount:{p}")
+            for p in presets[:3]
+        ],
+        [
+            InlineKeyboardButton(text=f"${p:,}", callback_data=f"calc:amount:{p}")
+            for p in presets[3:]
+        ],
+        [InlineKeyboardButton(text="✏️ Своя сумма", callback_data="calc:custom")],
+        [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def calculator_result_keyboard(amount: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔁 Другая сумма", callback_data="menu:calculator")],
+            [
+                InlineKeyboardButton(text="🔬 Бэктест", callback_data="menu:backtest"),
+                InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home"),
+            ],
+        ]
+    )
+
+
+def stats_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="💰 Калькулятор", callback_data="menu:calculator"),
+                InlineKeyboardButton(text="🔬 Бэктест", callback_data="menu:backtest"),
+            ],
+            [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
+        ]
+    )
 
 
 def settings_keyboard(user: User) -> InlineKeyboardMarkup:

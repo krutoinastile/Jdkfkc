@@ -14,6 +14,7 @@ def welcome_text() -> str:
             'Графики с EMA на свечах',
             'Fear & Greed + Funding Rate',
             'Ликвидации с Binance Futures',
+            'Калькулятор прибыли и бэктест',
             'Статистика и история сделок',
         ])}\n\n"
         f"<i>⚠️ Не финансовый совет. Торгуйте ответственно.</i>"
@@ -29,6 +30,8 @@ def help_text() -> str:
             'Сигнал — активная точка входа + график',
             'Рынок — цена, индикаторы + график',
             'Статистика — win rate и P&L',
+            'Калькулятор — сколько бы вы заработали',
+            'Бэктест — проверка на истории',
             'История — прошлые сделки',
             'Уведомления — сигналы, ликвидации, funding',
         ])}\n"
@@ -37,6 +40,7 @@ def help_text() -> str:
             '/start — главное меню',
             '/signal — текущий сигнал',
             '/stats — статистика',
+            '/calc — калькулятор прибыли',
             '/admin — панель админа',
         ])}"
     )
@@ -79,7 +83,14 @@ def format_stats(stats: dict) -> str:
     )
 
 
-def format_market(snap: dict, timeframe: str, *, fear_greed: dict | None = None, funding: dict | None = None) -> str:
+def format_market(
+    snap: dict,
+    timeframe: str,
+    *,
+    fear_greed: dict | None = None,
+    funding: dict | None = None,
+    derivatives: dict | None = None,
+) -> str:
     return (
         f"{header('💹 BTC/USDT', f'Таймфрейм {timeframe}')}\n"
         f"{section('Цена')}\n"
@@ -95,7 +106,8 @@ def format_market(snap: dict, timeframe: str, *, fear_greed: dict | None = None,
         f"  EMA55: {money(snap['ema_trend'])}\n"
         f"{section('Сентимент')}\n"
         f"{_format_fear_greed(fear_greed)}\n"
-        f"{_format_funding(funding)}"
+        f"{_format_funding(funding)}\n"
+        f"{_format_derivatives(derivatives)}"
     )
 
 
@@ -118,6 +130,7 @@ def format_dashboard(
     has_open: bool,
     fear_greed: dict | None = None,
     funding: dict | None = None,
+    derivatives: dict | None = None,
 ) -> str:
     signal_state = "🟢 Есть активный сигнал" if has_open else "⚪ Ожидание входа"
     return (
@@ -128,6 +141,7 @@ def format_dashboard(
         f"{section('Сентимент')}\n"
         f"{_format_fear_greed(fear_greed)}\n"
         f"{_format_funding(funding)}\n"
+        f"{_format_derivatives(derivatives)}\n"
         f"{section('Сигналы')}\n"
         f"  {signal_state}\n"
         f"  Win Rate: {win_rate_bar(stats['win_rate'])}\n"
@@ -240,4 +254,96 @@ def format_funding_alert(funding: dict) -> str:
         f"  <b>{sign}{funding['rate_pct']:.4f}%</b> ({funding['source']})\n"
         f"  {funding['bias']}\n\n"
         f"<i>{hint}</i>"
+    )
+
+
+def _format_derivatives(deriv: dict | None) -> str:
+    if deriv is None:
+        return "  OI / L/S: <i>недоступно</i>"
+    bar = progress_bar(deriv["long_pct"], 100, 10)
+    return (
+        f"  📊 OI: <b>{deriv['open_interest_fmt']}</b> ({deriv['source']})\n"
+        f"  L/S: {bar} <b>{deriv['long_pct']}%</b>L / <b>{deriv['short_pct']}%</b>S\n"
+        f"  {deriv['ls_bias']}"
+    )
+
+
+def format_calculator_intro(closed_count: int) -> str:
+    return (
+        f"{header('💰 Калькулятор прибыли', 'Симуляция по сигналам бота')}\n\n"
+        f"Закрытых сделок в базе: <b>{closed_count}</b>\n\n"
+        f"Выберите стартовый капитал или введите свою сумму.\n"
+        f"Расчёт покажет результат при следовании <b>всем</b> сигналам бота.\n\n"
+        f"<i>Два режима: сложный % (реинвест) и фиксированный %.</i>"
+    )
+
+
+def format_calculator_result(sim, *, closed_count: int) -> str:  # noqa: ANN001
+    from app.services.profit_calc import ProfitSimulation
+
+    if not isinstance(sim, ProfitSimulation):
+        raise TypeError("sim must be ProfitSimulation")
+
+    win_bar = win_rate_bar(sim.wins / sim.trades * 100 if sim.trades else 0)
+    profit_emoji = "📈" if sim.profit_compound >= 0 else "📉"
+
+    return (
+        f"{header(f'{profit_emoji} Результат калькулятора', f'Капитал {money(sim.initial_capital)}')}\n"
+        f"{section('Сделки')}\n"
+        f"  Учтено: <b>{sim.trades}</b> из {closed_count}\n"
+        f"  ✅ {sim.wins} · ❌ {sim.losses}\n"
+        f"  Win Rate: {win_bar}\n"
+        f"{section('Сложный % (реинвест)')}\n"
+        f"  Итого: <b>{money(sim.final_compound)}</b>\n"
+        f"  Прибыль: <b>{money(sim.profit_compound)}</b> ({pnl(sim.profit_pct_compound)})\n"
+        f"{section('Фиксированный %')}\n"
+        f"  Итого: <b>{money(sim.final_fixed)}</b>\n"
+        f"  Прибыль: <b>{money(sim.profit_fixed)}</b> ({pnl(sim.profit_pct_fixed)})\n"
+        f"{section('По сделкам')}\n"
+        f"  Лучшая: <b>{pnl(sim.best_trade_pct)}</b>\n"
+        f"  Худшая: <b>{pnl(sim.worst_trade_pct)}</b>\n"
+        f"  Средняя: <b>{pnl(sim.avg_trade_pct)}</b>\n\n"
+        f"<i>⚠️ Прошлые результаты не гарантируют будущую доходность.</i>"
+    )
+
+
+def format_calculator_empty() -> str:
+    return (
+        f"{header('💰 Калькулятор прибыли', 'Пока нет данных')}\n\n"
+        f"Закрытых сделок ещё нет — калькулятор заработает,\n"
+        f"когда бот закроет первые сигналы по TP или SL.\n\n"
+        f"<i>Можете посмотреть бэктест на исторических данных.</i>"
+    )
+
+
+def format_backtest_result(result, *, timeframe: str, bars: int) -> str:  # noqa: ANN001
+    from app.services.backtest import BacktestResult
+
+    if not isinstance(result, BacktestResult):
+        raise TypeError("result must be BacktestResult")
+
+    if not result.trades:
+        return (
+            f"{header('🔬 Бэктест', f'{timeframe} · {bars} свечей')}\n\n"
+            f"За выбранный период сигналов не найдено.\n"
+            f"<i>Попробуйте другой таймфрейм в админке.</i>"
+        )
+
+    profit = result.final_capital - result.simulated_capital
+    profit_emoji = "📈" if profit >= 0 else "📉"
+
+    return (
+        f"{header('🔬 Бэктест стратегии', f'{timeframe} · {bars} свечей')}\n"
+        f"{section('Сделки')}\n"
+        f"  Всего: <b>{len(result.trades)}</b>\n"
+        f"  ✅ {result.wins} · ❌ {result.losses}\n"
+        f"  Win Rate: {win_rate_bar(result.win_rate)}\n"
+        f"{section('P&L')}\n"
+        f"  Суммарно: <b>{pnl(result.total_pnl_pct)}</b>\n"
+        f"  Средняя сделка: <b>{pnl(result.avg_pnl_pct)}</b>\n"
+        f"  Лучшая / Худшая: <b>{pnl(result.best_pct)}</b> / <b>{pnl(result.worst_pct)}</b>\n"
+        f"{section(f'{profit_emoji} Капитал $1000')}\n"
+        f"  Итого: <b>{money(result.final_capital)}</b>\n"
+        f"  Прибыль: <b>{money(profit)}</b> ({pnl(profit / result.simulated_capital * 100)})\n\n"
+        f"<i>Симуляция на истории. Реальная торговля может отличаться.</i>"
     )

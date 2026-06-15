@@ -1,7 +1,8 @@
 import asyncio
 
 from aiogram import F, Router
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandStart, StateFilter
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,18 +12,37 @@ from app.database.repositories import (
     get_statistics,
     get_strategy_settings,
     is_admin,
+    list_closed_signals,
     list_open_signals,
     list_recent_signals,
     toggle_user_flag,
 )
-from app.keyboards.user import back_keyboard, history_keyboard, main_menu_keyboard, settings_keyboard, settings_text
+from app.keyboards.user import (
+    back_keyboard,
+    calculator_keyboard,
+    calculator_result_keyboard,
+    history_keyboard,
+    main_menu_keyboard,
+    refresh_keyboard,
+    settings_keyboard,
+    settings_text,
+    stats_keyboard,
+)
+from app.services.backtest import run_backtest
+from app.services.derivatives import fetch_derivatives_stats
 from app.services.funding import fetch_funding_rate
 from app.services.market_data import fetch_candles
+from app.services.profit_calc import simulate_profit
 from app.services.sentiment import fetch_fear_greed
 from app.services.strategy import market_snapshot
 from app.services.strategy_config import StrategyConfig
 from app.services.trade_tracker import format_signal_message
+from app.states.user import CalculatorStates
 from app.utils.messages import (
+    format_backtest_result,
+    format_calculator_empty,
+    format_calculator_intro,
+    format_calculator_result,
     format_dashboard,
     format_history,
     format_market,
@@ -36,6 +56,7 @@ from app.utils.telegram import answer_with_chart
 router = Router(name="user")
 
 PAGE_SIZE = 5
+BACKTEST_CANDLES = 400
 
 
 async def _cfg(session: AsyncSession) -> StrategyConfig:
@@ -44,13 +65,31 @@ async def _cfg(session: AsyncSession) -> StrategyConfig:
 
 async def _market_context(session: AsyncSession, settings: Settings) -> tuple:
     cfg = await _cfg(session)
-    candles, fear_greed, funding = await asyncio.gather(
+    candles, fear_greed, funding, derivatives = await asyncio.gather(
         fetch_candles(settings.symbol, cfg.timeframe),
         fetch_fear_greed(),
         fetch_funding_rate(settings.symbol),
+        fetch_derivatives_stats(settings.symbol),
     )
     snap = market_snapshot(candles, cfg)
-    return cfg, candles, snap, fear_greed, funding
+    return cfg, candles, snap, fear_greed, funding, derivatives
+
+
+async def _run_calculation(message: Message, session: AsyncSession, amount: float) -> None:
+    signals = await list_closed_signals(session)
+    if not signals:
+        await message.answer(format_calculator_empty(), reply_markup=calculator_keyboard())
+        return
+
+    sim = simulate_profit(signals, amount)
+    if sim is None:
+        await message.answer(format_calculator_empty(), reply_markup=calculator_keyboard())
+        return
+
+    await message.answer(
+        format_calculator_result(sim, closed_count=len(signals)),
+        reply_markup=calculator_result_keyboard(int(amount)),
+    )
 
 
 @router.message(CommandStart())
@@ -63,7 +102,8 @@ async def start(message: Message, session: AsyncSession, settings: Settings) -> 
 
 
 @router.callback_query(F.data == "menu:home")
-async def menu_home(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+async def menu_home(callback: CallbackQuery, session: AsyncSession, settings: Settings, state: FSMContext) -> None:
+    await state.clear()
     await callback.answer()
     if callback.from_user is None or not isinstance(callback.message, Message):
         return
@@ -77,13 +117,24 @@ async def menu_dashboard(callback: CallbackQuery, session: AsyncSession, setting
     if not isinstance(callback.message, Message):
         return
 
-    cfg, candles, snap, fear_greed, funding = await _market_context(session, settings)
+    cfg, candles, snap, fear_greed, funding, derivatives = await _market_context(session, settings)
     stats = await get_statistics(session)
     open_signals = await list_open_signals(session)
     caption = format_dashboard(
-        snap, stats, has_open=bool(open_signals), fear_greed=fear_greed, funding=funding,
+        snap,
+        stats,
+        has_open=bool(open_signals),
+        fear_greed=fear_greed,
+        funding=funding,
+        derivatives=derivatives,
     )
-    await answer_with_chart(callback.message, caption, candles, cfg, reply_markup=back_keyboard())
+    await answer_with_chart(
+        callback.message,
+        caption,
+        candles,
+        cfg,
+        reply_markup=refresh_keyboard("menu:dashboard"),
+    )
 
 
 @router.callback_query(F.data == "menu:help")
@@ -94,6 +145,90 @@ async def menu_help(callback: CallbackQuery) -> None:
     await callback.message.answer(help_text(), reply_markup=back_keyboard())
 
 
+@router.callback_query(F.data == "menu:calculator")
+async def menu_calculator(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    await callback.answer()
+    if not isinstance(callback.message, Message):
+        return
+
+    signals = await list_closed_signals(session)
+    await callback.message.answer(
+        format_calculator_intro(len(signals)),
+        reply_markup=calculator_keyboard(),
+    )
+
+
+@router.callback_query(F.data.regexp(r"^calc:amount:\d+$"))
+async def calc_preset(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    await callback.answer()
+    if callback.data is None or not isinstance(callback.message, Message):
+        return
+    amount = float(callback.data.rsplit(":", maxsplit=1)[-1])
+    await _run_calculation(callback.message, session, amount)
+
+
+@router.callback_query(F.data == "calc:custom")
+async def calc_custom_start(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await state.set_state(CalculatorStates.waiting_amount)
+    if isinstance(callback.message, Message):
+        await callback.message.answer(
+            "Введите сумму в USD (например: <b>2500</b>)\n\n/cancel — отмена",
+        )
+
+
+@router.message(StateFilter(CalculatorStates.waiting_amount))
+async def calc_custom_amount(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    if message.text is None:
+        return
+    if message.text.strip().lower() == "/cancel":
+        await state.clear()
+        await message.answer("Отменено.", reply_markup=back_keyboard())
+        return
+
+    try:
+        amount = float(message.text.replace(",", "").replace("$", "").strip())
+    except ValueError:
+        await message.answer("Введите число, например: 1000")
+        return
+
+    if amount < 10 or amount > 10_000_000:
+        await message.answer("Сумма должна быть от $10 до $10,000,000")
+        return
+
+    await state.clear()
+    await _run_calculation(message, session, amount)
+
+
+@router.callback_query(F.data == "menu:backtest")
+async def menu_backtest(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await callback.answer("Считаю бэктест...")
+    if not isinstance(callback.message, Message):
+        return
+
+    cfg = await _cfg(session)
+    if cfg.use_higher_tf:
+        candles, htf_candles = await asyncio.gather(
+            fetch_candles(settings.symbol, cfg.timeframe, limit=BACKTEST_CANDLES),
+            fetch_candles(settings.symbol, cfg.higher_tf, limit=BACKTEST_CANDLES // 4 + 60),
+        )
+    else:
+        candles = await fetch_candles(settings.symbol, cfg.timeframe, limit=BACKTEST_CANDLES)
+        htf_candles = None
+
+    result = await asyncio.to_thread(
+        run_backtest,
+        candles,
+        cfg,
+        htf_candles=htf_candles,
+        initial_capital=1000.0,
+    )
+    text = format_backtest_result(result, timeframe=cfg.timeframe, bars=len(candles))
+    await callback.message.answer(text, reply_markup=refresh_keyboard("menu:backtest"))
+
+
 @router.callback_query(F.data == "menu:signal")
 async def menu_signal(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
     await callback.answer("Загружаю...")
@@ -101,7 +236,7 @@ async def menu_signal(callback: CallbackQuery, session: AsyncSession, settings: 
         return
 
     open_signals = await list_open_signals(session)
-    cfg, candles, snap, _, _ = await _market_context(session, settings)
+    cfg, candles, snap, _, _, _ = await _market_context(session, settings)
 
     if open_signals:
         signal = open_signals[0]
@@ -111,7 +246,7 @@ async def menu_signal(callback: CallbackQuery, session: AsyncSession, settings: 
             candles,
             cfg,
             signal=signal,
-            reply_markup=back_keyboard(),
+            reply_markup=refresh_keyboard("menu:signal"),
         )
         return
 
@@ -120,7 +255,7 @@ async def menu_signal(callback: CallbackQuery, session: AsyncSession, settings: 
         format_no_signal(snap),
         candles,
         cfg,
-        reply_markup=back_keyboard(),
+        reply_markup=refresh_keyboard("menu:signal"),
     )
 
 
@@ -130,9 +265,17 @@ async def menu_market(callback: CallbackQuery, session: AsyncSession, settings: 
     if not isinstance(callback.message, Message):
         return
 
-    cfg, candles, snap, fear_greed, funding = await _market_context(session, settings)
-    caption = format_market(snap, cfg.timeframe, fear_greed=fear_greed, funding=funding)
-    await answer_with_chart(callback.message, caption, candles, cfg, reply_markup=back_keyboard())
+    cfg, candles, snap, fear_greed, funding, derivatives = await _market_context(session, settings)
+    caption = format_market(
+        snap, cfg.timeframe, fear_greed=fear_greed, funding=funding, derivatives=derivatives,
+    )
+    await answer_with_chart(
+        callback.message,
+        caption,
+        candles,
+        cfg,
+        reply_markup=refresh_keyboard("menu:market"),
+    )
 
 
 @router.callback_query(F.data == "menu:stats")
@@ -141,7 +284,7 @@ async def menu_stats(callback: CallbackQuery, session: AsyncSession) -> None:
     if not isinstance(callback.message, Message):
         return
     stats = await get_statistics(session)
-    await callback.message.answer(format_stats(stats), reply_markup=back_keyboard())
+    await callback.message.answer(format_stats(stats), reply_markup=stats_keyboard())
 
 
 @router.callback_query(F.data.regexp(r"^menu:history:\d+$"))
@@ -191,7 +334,6 @@ async def toggle_setting(callback: CallbackQuery, session: AsyncSession) -> None
         await callback.message.edit_text(settings_text(user), reply_markup=settings_keyboard(user))
 
 
-# backward compat
 @router.callback_query(F.data == "menu:notify")
 async def menu_notify_legacy(callback: CallbackQuery, session: AsyncSession) -> None:
     await menu_settings(callback, session)
@@ -207,8 +349,14 @@ async def stats_cmd(message: Message, session: AsyncSession, settings: Settings)
 @router.message(Command("signal"))
 async def signal_cmd(message: Message, session: AsyncSession, settings: Settings) -> None:
     open_signals = await list_open_signals(session)
-    cfg, candles, snap, _, _ = await _market_context(session, settings)
+    cfg, candles, snap, _, _, _ = await _market_context(session, settings)
     if open_signals:
         await answer_with_chart(message, format_signal_message(open_signals[0]), candles, cfg, signal=open_signals[0])
     else:
         await answer_with_chart(message, format_no_signal(snap), candles, cfg)
+
+
+@router.message(Command("calc"))
+async def calc_cmd(message: Message, session: AsyncSession) -> None:
+    signals = await list_closed_signals(session)
+    await message.answer(format_calculator_intro(len(signals)), reply_markup=calculator_keyboard())
