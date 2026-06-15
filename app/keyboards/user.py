@@ -12,7 +12,7 @@ def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="📈 Статистика", callback_data="menu:stats"),
-            InlineKeyboardButton(text="📜 История", callback_data="menu:history:0"),
+            InlineKeyboardButton(text="📜 История", callback_data="hist:all:0:0"),
         ],
         [
             InlineKeyboardButton(text="💰 Калькулятор", callback_data="menu:calculator"),
@@ -160,14 +160,67 @@ def back_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def history_keyboard(page: int, has_more: bool) -> InlineKeyboardMarkup:
+def history_keyboard(
+    *,
+    page: int,
+    has_more: bool,
+    status_filter: str,
+    days: int,
+    signals: list | None = None,
+) -> InlineKeyboardMarkup:
+    from app.utils.history import HISTORY_FILTERS, HISTORY_PERIODS, history_callback
+
+    rows: list[list[InlineKeyboardButton]] = []
+
+    if signals:
+        for s in signals:
+            icon = {"win": "✅", "loss": "❌", "open": "🔄", "expired": "⏱"}.get(s.status, "·")
+            d = "L" if s.direction == "long" else "S"
+            rows.append([InlineKeyboardButton(
+                text=f"{icon} #{s.id} {d} ${s.entry_price:,.0f}",
+                callback_data=f"hist:detail:{s.id}",
+            )])
+
+    filter_row = []
+    for key, label in HISTORY_FILTERS.items():
+        mark = "• " if key == status_filter else ""
+        filter_row.append(InlineKeyboardButton(
+            text=f"{mark}{label}",
+            callback_data=history_callback(key, days, 0),
+        ))
+    rows.append(filter_row[:2])
+    rows.append(filter_row[2:])
+
+    period_row = []
+    for d, label in HISTORY_PERIODS.items():
+        mark = "• " if d == days else ""
+        period_row.append(InlineKeyboardButton(
+            text=f"{mark}{label}",
+            callback_data=history_callback(status_filter, d, 0),
+        ))
+    rows.append(period_row)
+
     nav: list[InlineKeyboardButton] = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"menu:history:{page - 1}"))
+        nav.append(InlineKeyboardButton(
+            text="◀️ Назад",
+            callback_data=history_callback(status_filter, days, page - 1),
+        ))
     if has_more:
-        nav.append(InlineKeyboardButton(text="Вперёд ▶️", callback_data=f"menu:history:{page + 1}"))
-    rows: list[list[InlineKeyboardButton]] = []
+        nav.append(InlineKeyboardButton(
+            text="Вперёд ▶️",
+            callback_data=history_callback(status_filter, days, page + 1),
+        ))
     if nav:
         rows.append(nav)
     rows.append([InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def history_detail_keyboard(signal_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ К истории", callback_data="hist:all:0:0")],
+            [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
+        ]
+    )

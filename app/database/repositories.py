@@ -88,6 +88,48 @@ async def list_recent_signals(session: AsyncSession, limit: int = 10) -> list[Si
     return list(result.scalars().all())
 
 
+async def list_history_signals(
+    session: AsyncSession,
+    *,
+    status_filter: str = "all",
+    days: int = 0,
+    limit: int = 100,
+) -> list[Signal]:
+    query = select(Signal)
+    if status_filter == "win":
+        query = query.where(Signal.status == TradeStatus.WIN.value)
+    elif status_filter == "loss":
+        query = query.where(Signal.status == TradeStatus.LOSS.value)
+    elif status_filter == "open":
+        query = query.where(Signal.status == TradeStatus.OPEN.value)
+    if days > 0:
+        cutoff = datetime.now(tz=UTC) - timedelta(days=days)
+        query = query.where(Signal.opened_at >= cutoff)
+    query = query.order_by(Signal.opened_at.desc()).limit(limit)
+    result = await session.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_history_signals(
+    session: AsyncSession,
+    *,
+    status_filter: str = "all",
+    days: int = 0,
+) -> int:
+    query = select(func.count(Signal.id))
+    if status_filter == "win":
+        query = query.where(Signal.status == TradeStatus.WIN.value)
+    elif status_filter == "loss":
+        query = query.where(Signal.status == TradeStatus.LOSS.value)
+    elif status_filter == "open":
+        query = query.where(Signal.status == TradeStatus.OPEN.value)
+    if days > 0:
+        cutoff = datetime.now(tz=UTC) - timedelta(days=days)
+        query = query.where(Signal.opened_at >= cutoff)
+    result = await session.execute(query)
+    return int(result.scalar_one())
+
+
 async def list_closed_signals(
     session: AsyncSession,
     *,

@@ -200,19 +200,111 @@ def format_signal_card(signal: Signal, *, is_new: bool = False) -> str:
     )
 
 
-def format_history_item(signal: Signal) -> str:
+def format_history_item(signal: Signal, *, index: int | None = None) -> str:
     icons = {"win": "✅", "loss": "❌", "open": "🔄", "expired": "⏱"}
     icon = icons.get(signal.status, "·")
-    direction = "🟢L" if signal.direction == "long" else "🔴S"
-    pnl_str = f" · <b>{pnl(signal.pnl_percent)}</b>" if signal.pnl_percent is not None else ""
+    direction = "🟢 LONG" if signal.direction == "long" else "🔴 SHORT"
+    date = signal.opened_at.strftime("%d.%m.%Y %H:%M") if signal.opened_at else "—"
+    pnl_str = f" · {pnl_colored(signal.pnl_percent)}" if signal.pnl_percent is not None else ""
     strength = f" · {signal.strength}/100" if signal.strength else ""
-    return f"{icon} {direction} {money(signal.entry_price)}{strength}{pnl_str}"
+    prefix = f"<b>#{index}</b> " if index is not None else ""
+    return (
+        f"{prefix}{icon} <b>{direction}</b>\n"
+        f"   📅 {date}\n"
+        f"   💰 {money(signal.entry_price)}{strength}{pnl_str}"
+    )
 
 
-def format_history(signals: list[Signal], *, page: int) -> str:
-    lines = [f"{header('📜 История сделок', f'Страница {page + 1}')}\n"]
-    lines.extend(format_history_item(s) for s in signals)
+def format_history_summary(total: int, wins: int, losses: int, open_n: int) -> str:
+    parts = [f"<b>{total}</b> сделок"]
+    if wins:
+        parts.append(f"✅ {wins}")
+    if losses:
+        parts.append(f"❌ {losses}")
+    if open_n:
+        parts.append(f"🔄 {open_n}")
+    return " · ".join(parts)
+
+
+def format_history(
+    signals: list[Signal],
+    *,
+    page: int,
+    status_filter: str,
+    days: int,
+    total_count: int,
+    wins: int,
+    losses: int,
+    open_n: int,
+) -> str:
+    from app.utils.history import HISTORY_FILTERS, HISTORY_PERIODS
+
+    filt_label = HISTORY_FILTERS.get(status_filter, "Все")
+    period_label = HISTORY_PERIODS.get(days, "Всё")
+
+    lines = [
+        f"{header('📜 История сделок', f'{filt_label} · {period_label} · стр. {page + 1}')}\n",
+        f"   {format_history_summary(total_count, wins, losses, open_n)}\n",
+    ]
+    start_idx = page * len(signals) + 1 if signals else 0
+    for i, s in enumerate(signals):
+        lines.append(format_history_item(s, index=start_idx + i))
+    if not signals:
+        lines.append("\n<i>Нет сделок по выбранному фильтру.</i>")
+    lines.append(footer())
     return "\n".join(lines)
+
+
+def format_history_empty() -> str:
+    return (
+        f"{header('📜 История сделок', 'Пока пусто')}\n\n"
+        f"История заполняется автоматически, когда бот:\n"
+        f"{bullet_list([
+            'находит сигнал LONG / SHORT',
+            'открывает сделку с Entry, SL, TP',
+            'закрывает по Take-Profit или Stop-Loss',
+        ])}\n\n"
+        f"Сейчас в базе <b>0 сделок</b> — стратегия ждёт\n"
+        f"подходящих условий на рынке.\n\n"
+        f"<i>💡 Пока можете посмотреть 🔬 Бэктест —\n"
+        f"симуляцию сделок на исторических данных.</i>"
+        f"{footer()}"
+    )
+
+
+def format_history_detail(signal: Signal) -> str:
+    icons = {"win": "✅", "loss": "❌", "open": "🔄", "expired": "⏱"}
+    icon = icons.get(signal.status, "·")
+    status_labels = {
+        "win": "Успех",
+        "loss": "Убыток",
+        "open": "Открыта",
+        "expired": "Истекла",
+    }
+    opened = signal.opened_at.strftime("%d.%m.%Y %H:%M UTC") if signal.opened_at else "—"
+    closed = signal.closed_at.strftime("%d.%m.%Y %H:%M UTC") if signal.closed_at else "—"
+    direction = badge("LONG", style="long") if signal.direction == "long" else badge("SHORT", style="short")
+
+    lines = [
+        f"{header(f'{icon} Сделка #{signal.id}', status_labels.get(signal.status, signal.status))}\n",
+        f"   {direction} · {signal.timeframe}\n",
+        f"{section('Время')}\n",
+        f"{kv('Открыта', opened)}\n",
+        f"{kv('Закрыта', closed)}\n",
+        f"{section('Уровни')}\n",
+        f"{kv('Вход', f'<b>{money(signal.entry_price)}</b>')}\n",
+    ]
+    if signal.exit_price is not None:
+        lines.append(f"{kv('Выход', f'<b>{money(signal.exit_price)}</b>')}\n")
+    lines.append(f"{kv('SL', money(signal.stop_loss))}\n")
+    lines.append(f"{kv('TP', money(signal.take_profit))}\n")
+    if signal.pnl_percent is not None:
+        lines.append(f"{kv('P&L', pnl_colored(signal.pnl_percent))}\n")
+    if signal.strength:
+        lines.append(f"{kv('Сила', strength_bar(signal.strength))}\n")
+    lines.append(f"\n<i>{signal.reason}</i>")
+    lines.append(footer())
+    return "".join(lines)
 
 
 def format_trade_closed(signal: Signal) -> str:

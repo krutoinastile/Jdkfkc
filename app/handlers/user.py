@@ -10,12 +10,13 @@ from app.config import Settings
 from app.database.repositories import (
     count_closed_signals,
     get_or_create_user,
+    get_signal_by_id,
     get_statistics,
     get_strategy_settings,
     is_admin,
     list_closed_signals,
+    list_history_signals,
     list_open_signals,
-    list_recent_signals,
     toggle_user_flag,
 )
 from app.keyboards.user import (
@@ -23,6 +24,7 @@ from app.keyboards.user import (
     calculator_amount_keyboard,
     calculator_period_keyboard,
     calculator_result_keyboard,
+    history_detail_keyboard,
     history_keyboard,
     main_menu_keyboard,
     refresh_keyboard,
@@ -48,6 +50,8 @@ from app.utils.messages import (
     format_calculator_result,
     format_dashboard,
     format_history,
+    format_history_detail,
+    format_history_empty,
     format_market,
     format_no_signal,
     format_stats,
@@ -55,6 +59,8 @@ from app.utils.messages import (
     welcome_text,
 )
 from app.utils.telegram import answer_with_chart
+
+from app.utils.history import parse_history_callback
 
 router = Router(name="user")
 
@@ -119,6 +125,52 @@ async def _run_calculation(
     await message.answer(
         format_calculator_result(sim),
         reply_markup=calculator_result_keyboard(period_days, int(amount)),
+    )
+
+async def _show_history(
+    message: Message,
+    session: AsyncSession,
+    *,
+    status_filter: str = "all",
+    days: int = 0,
+    page: int = 0,
+) -> None:
+    all_signals = await list_history_signals(
+        session, status_filter=status_filter, days=days, limit=100,
+    )
+    if not all_signals and status_filter == "all" and days == 0:
+        await message.answer(
+            format_history_empty(),
+            reply_markup=history_keyboard(
+                page=0, has_more=False, status_filter="all", days=0,
+            ),
+        )
+        return
+
+    chunk = all_signals[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
+    has_more = len(all_signals) > (page + 1) * PAGE_SIZE
+    wins = sum(1 for s in all_signals if s.status == "win")
+    losses = sum(1 for s in all_signals if s.status == "loss")
+    open_n = sum(1 for s in all_signals if s.status == "open")
+
+    await message.answer(
+        format_history(
+            chunk,
+            page=page,
+            status_filter=status_filter,
+            days=days,
+            total_count=len(all_signals),
+            wins=wins,
+            losses=losses,
+            open_n=open_n,
+        ),
+        reply_markup=history_keyboard(
+            page=page,
+            has_more=has_more,
+            status_filter=status_filter,
+            days=days,
+            signals=chunk,
+        ),
     )
 
 
@@ -343,25 +395,40 @@ async def menu_stats(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.message.answer(format_stats(stats), reply_markup=stats_keyboard())
 
 
-@router.callback_query(F.data.regexp(r"^menu:history:\d+$"))
+@router.callback_query(F.data.regexp(r"^hist:(all|win|loss|open):\d+:\d+$"))
 async def menu_history(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     if callback.data is None or not isinstance(callback.message, Message):
         return
-
-    page = int(callback.data.rsplit(":", maxsplit=1)[-1])
-    all_signals = await list_recent_signals(session, limit=50)
-    chunk = all_signals[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
-    has_more = len(all_signals) > (page + 1) * PAGE_SIZE
-
-    if not chunk:
-        await callback.message.answer("История пуста.", reply_markup=back_keyboard())
-        return
-
-    await callback.message.answer(
-        format_history(chunk, page=page),
-        reply_markup=history_keyboard(page, has_more),
+    status_filter, days, page = parse_history_callback(callback.data)
+    await _show_history(
+        callback.message, session,
+        status_filter=status_filter, days=days, page=page,
     )
+
+
+@router.callback_query(F.data.regexp(r"^hist:detail:\d+$"))
+async def history_detail(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if callback.data is None or not isinstance(callback.message, Message):
+        return
+    signal_id = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    signal = await get_signal_by_id(session, signal_id)
+    if signal is None:
+        await callback.message.answer("Сделка не найдена.", reply_markup=back_keyboard())
+        return
+    await callback.message.answer(
+        format_history_detail(signal),
+        reply_markup=history_detail_keyboard(signal_id),
+    )
+
+
+@router.callback_query(F.data.regexp(r"^menu:history:\d+$"))
+async def menu_history_legacy(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if not isinstance(callback.message, Message):
+        return
+    await _show_history(callback.message, session, status_filter="all", days=0, page=0)
 
 
 @router.callback_query(F.data == "menu:settings")
