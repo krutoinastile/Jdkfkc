@@ -77,6 +77,30 @@ def _open_from_signal(signal: TradeSignal) -> dict:
     }
 
 
+def _utc_day(ms: int) -> int:
+    return ms // 86_400_000
+
+
+def _hours_between(earlier_ms: int, later_ms: int) -> float:
+    return (later_ms - earlier_ms) / 3_600_000
+
+
+def _can_open_new_backtest_signal(
+    *,
+    candle_time: int,
+    last_open_time: int | None,
+    signals_today: int,
+    min_hours: float,
+    max_per_day: int,
+) -> bool:
+    if max_per_day > 0 and signals_today >= max_per_day:
+        return False
+    if min_hours > 0 and last_open_time is not None:
+        if _hours_between(last_open_time, candle_time) < min_hours:
+            return False
+    return True
+
+
 def run_backtest(
     candles: list[Candle],
     cfg: StrategyConfig,
@@ -88,9 +112,16 @@ def run_backtest(
     trades: list[BacktestTrade] = []
     open_pos: dict | None = None
     capital = initial_capital
+    last_open_time: int | None = None
+    signals_day: int | None = None
+    signals_today = 0
 
     for i in range(min_i, len(candles)):
         candle = candles[i]
+        candle_day = _utc_day(candle.open_time)
+        if signals_day != candle_day:
+            signals_day = candle_day
+            signals_today = 0
 
         if open_pos:
             closed = _close_trade(
@@ -108,11 +139,21 @@ def run_backtest(
                 open_pos = None
 
         if open_pos is None:
+            if not _can_open_new_backtest_signal(
+                candle_time=candle.open_time,
+                last_open_time=last_open_time,
+                signals_today=signals_today,
+                min_hours=cfg.min_hours_between_signals,
+                max_per_day=cfg.max_signals_per_day,
+            ):
+                continue
             window = candles[: i + 1]
             htf = _htf_slice(htf_candles, candle.open_time)
             signal = analyze_candles(window, cfg, htf_candles=htf)
             if signal:
                 open_pos = _open_from_signal(signal)
+                last_open_time = candle.open_time
+                signals_today += 1
 
     wins = sum(1 for t in trades if t.status == TradeStatus.WIN.value)
     losses = len(trades) - wins

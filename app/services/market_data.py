@@ -99,21 +99,28 @@ async def _fetch_candles_single(symbol: str, interval: str, limit: int) -> list[
 
 
 async def fetch_candles_history(symbol: str, interval: str, limit: int) -> list[Candle]:
-    """Fetch extended history via OKX pagination (fallback to single batch)."""
+    """Fetch extended history via OKX history-candles pagination."""
     iv = INTERVAL_MAP.get(interval, INTERVAL_MAP["1h"])["okx"]
     inst = symbol.replace("USDT", "-USDT")
     batch_size = 300
     all_candles: list[Candle] = []
     after: str | None = None
+    max_batches = max(50, limit // batch_size + 5)
 
     try:
         async with aiohttp.ClientSession() as session:
-            while len(all_candles) < limit:
-                params: dict[str, str] = {"instId": inst, "bar": iv, "limit": str(batch_size)}
+            for _ in range(max_batches):
+                if len(all_candles) >= limit:
+                    break
+                params: dict[str, str] = {
+                    "instId": inst,
+                    "bar": iv,
+                    "limit": str(batch_size),
+                }
                 if after:
                     params["after"] = after
                 async with session.get(
-                    "https://www.okx.com/api/v5/market/candles",
+                    "https://www.okx.com/api/v5/market/history-candles",
                     params=params,
                     timeout=aiohttp.ClientTimeout(total=20),
                 ) as resp:
@@ -132,7 +139,7 @@ async def fetch_candles_history(symbol: str, interval: str, limit: int) -> list[
                 if len(rows) < batch_size:
                     break
         if len(all_candles) >= 60:
-            logger.debug("Extended candles from OKX: %d rows", len(all_candles))
+            logger.debug("Extended candles from OKX history: %d rows", len(all_candles))
             return all_candles[-limit:]
     except Exception:
         logger.warning("Extended candle fetch failed, falling back to single batch", exc_info=True)

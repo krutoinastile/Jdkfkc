@@ -468,11 +468,12 @@ def format_backtest_intro(timeframe: str) -> str:
     return (
         f"{header('🔬 Бэктест', 'Симуляция на истории')}\n\n"
         f"Таймфрейм стратегии: <b>{timeframe}</b>\n"
-        f"Плечо: <b>20x</b> · Капитал: <b>$1,000</b>\n\n"
+        f"Плечо: <b>20x</b> · Капитал: <b>$1,000</b>\n"
+        f"Лимит: <b>~1 сделка в день</b> · пауза <b>24ч</b>\n\n"
         f"Выберите период:\n"
         f"   {periods}\n\n"
-        f"<i>Стратегия прогоняется на исторических свечах\n"
-        f"с теми же правилами, что и live-бот.</i>"
+        f"<i>Как в live-боте: не больше 1 входа в сутки,\n"
+        f"минимум 24ч между сигналами, одна открытая сделка.</i>"
         f"{footer()}"
     )
 
@@ -486,11 +487,17 @@ def format_backtest_result(result, *, timeframe: str, days: int, bars: int) -> s
 
     label = period_label(days)
     covered = period_days_from_candles(bars, timeframe)
+    trades_per_month = len(result.trades) / max(covered, 1) * 30
     history_note = ""
     if covered < days * 0.85:
         history_note = (
-            f"\n<i>⚠️ Биржа отдала ~{covered:.0f} дн. истории "
-            f"(максимум доступных данных).</i>"
+            f"\n<i>⚠️ Загружено ~{covered:.0f} дн. из {label} "
+            f"({bars} свечей) — лимит API биржи.</i>"
+        )
+    elif result.trades:
+        history_note = (
+            f"\n<i>ℹ️ ~{covered:.0f} дн. · {len(result.trades)} сделок "
+            f"(~{trades_per_month:.1f}/мес · лимит 1/день · 20x · 100% банка).</i>"
         )
 
     if not result.trades:

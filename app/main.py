@@ -10,6 +10,7 @@ from app.handlers.admin import router as admin_router
 from app.handlers.user import router as user_router
 from app.logging_config import setup_logging
 from app.middlewares.db import DbSessionMiddleware
+from app.database.repositories import ensure_admin_users
 from app.database.session import create_engine, create_session_pool, init_database
 from app.services.trade_tracker import setup_scheduler
 from app.services.liquidation_monitor import run_liquidation_monitor
@@ -25,6 +26,9 @@ async def main() -> None:
     engine = create_engine(settings.database_url)
     session_pool = create_session_pool(engine)
     await init_database(engine)
+
+    async with session_pool() as session:
+        await ensure_admin_users(session, settings.parsed_admin_ids)
 
     bot = Bot(
         token=settings.bot_token,

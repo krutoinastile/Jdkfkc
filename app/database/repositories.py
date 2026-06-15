@@ -25,6 +25,15 @@ async def list_subscribed_users(session: AsyncSession) -> list[User]:
     return list(result.scalars().all())
 
 
+async def ensure_admin_users(session: AsyncSession, admin_ids: tuple[int, ...]) -> None:
+    for tg_id in admin_ids:
+        user = await get_or_create_user(session, tg_id, None)
+        if not user.notify_signals:
+            user.notify_signals = True
+            await session.commit()
+            await session.refresh(user)
+
+
 async def toggle_notifications(session: AsyncSession, user: User) -> User:
     user.notify_signals = not user.notify_signals
     await session.commit()

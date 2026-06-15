@@ -13,13 +13,15 @@ from app.database.repositories import (
     can_open_new_signal,
     close_signal,
     create_signal,
+    ensure_admin_users,
     expire_old_signals,
     get_strategy_settings,
     has_open_signal,
     list_open_signals,
     list_subscribed_users,
 )
-from app.services.market_data import fetch_candles, fetch_current_price
+from app.services.market_data import Candle, fetch_candles, fetch_current_price
+from app.utils.telegram import send_signal_chart
 from app.services.strategy import analyze_candles
 from app.services.strategy_config import StrategyConfig
 from app.utils.leverage import get_leverage, spot_to_leveraged
@@ -81,8 +83,7 @@ async def run_market_scan(
         macd_hist=trade_signal.macd_hist,
         leverage=db_cfg.leverage,
     )
-    if settings.notify_on_signal:
-        await notify_signal(bot, session, signal)
+    await notify_signal(bot, session, signal, settings, candles=candles, cfg=cfg)
     return signal
 
 
@@ -115,22 +116,47 @@ async def check_open_trades(session: AsyncSession, settings: Settings) -> list[S
     return closed
 
 
-async def notify_signal(bot: Bot, session: AsyncSession, signal: Signal) -> None:
+async def notify_signal(
+    bot: Bot,
+    session: AsyncSession,
+    signal: Signal,
+    settings: Settings,
+    *,
+    candles: list[Candle] | None = None,
+    cfg: StrategyConfig | None = None,
+) -> None:
     text = format_signal_message(signal, is_new=True)
-    for user in await list_subscribed_users(session):
+    admin_ids = set(settings.parsed_admin_ids)
+    recipient_ids = set(admin_ids)
+    if settings.notify_on_signal:
+        recipient_ids.update(user.tg_id for user in await list_subscribed_users(session))
+
+    for tg_id in recipient_ids:
         try:
-            await bot.send_message(chat_id=user.tg_id, text=text)
+            if tg_id in admin_ids and candles and cfg:
+                await send_signal_chart(bot, tg_id, text, candles, cfg, signal)
+            else:
+                await bot.send_message(chat_id=tg_id, text=text)
         except Exception:
-            logger.exception("Failed to notify user %s", user.tg_id)
+            logger.exception("Failed to notify user %s", tg_id)
 
 
-async def notify_trade_closed(bot: Bot, session: AsyncSession, signal: Signal) -> None:
+async def notify_trade_closed(
+    bot: Bot,
+    session: AsyncSession,
+    signal: Signal,
+    settings: Settings,
+) -> None:
     text = format_trade_closed(signal)
-    for user in await list_subscribed_users(session):
+    recipient_ids = set(settings.parsed_admin_ids)
+    if settings.notify_on_signal:
+        recipient_ids.update(user.tg_id for user in await list_subscribed_users(session))
+
+    for tg_id in recipient_ids:
         try:
-            await bot.send_message(chat_id=user.tg_id, text=text)
+            await bot.send_message(chat_id=tg_id, text=text)
         except Exception:
-            logger.exception("Failed to notify user %s about closed trade", user.tg_id)
+            logger.exception("Failed to notify user %s about closed trade", tg_id)
 
 
 def setup_scheduler(session_pool: async_sessionmaker[AsyncSession], bot: Bot, settings: Settings):
@@ -150,7 +176,7 @@ def setup_scheduler(session_pool: async_sessionmaker[AsyncSession], bot: Bot, se
             try:
                 closed = await check_open_trades(session, settings)
                 for signal in closed:
-                    await notify_trade_closed(bot, session, signal)
+                    await notify_trade_closed(bot, session, signal, settings)
             except Exception:
                 logger.exception("Check trades job failed")
 
