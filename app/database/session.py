@@ -7,6 +7,7 @@ SIGNAL_MIGRATIONS = (
     ("signal_type", "VARCHAR(32) DEFAULT 'crossover'"),
     ("strength", "INTEGER DEFAULT 0"),
     ("macd_hist", "FLOAT"),
+    ("leverage", "INTEGER DEFAULT 20"),
 )
 
 USER_MIGRATIONS = (
@@ -20,8 +21,9 @@ STRATEGY_MIGRATIONS = (
     ("liquidations_enabled", "BOOLEAN DEFAULT 1"),
     ("funding_alerts_enabled", "BOOLEAN DEFAULT 1"),
     ("min_funding_rate_pct", "FLOAT DEFAULT 0.05"),
-    ("min_hours_between_signals", "FLOAT DEFAULT 20"),
+    ("min_hours_between_signals", "FLOAT DEFAULT 24"),
     ("max_signals_per_day", "INTEGER DEFAULT 1"),
+    ("leverage", "INTEGER DEFAULT 20"),
 )
 
 
@@ -50,17 +52,26 @@ async def init_database(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         def migrate(sync_conn) -> None:
             strategy_before = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(strategy_settings)")).fetchall()}
+            signals_before = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(signals)")).fetchall()}
             _migrate_table(sync_conn, "signals", SIGNAL_MIGRATIONS)
             _migrate_table(sync_conn, "users", USER_MIGRATIONS)
             _migrate_table(sync_conn, "strategy_settings", STRATEGY_MIGRATIONS)
-            if "min_hours_between_signals" not in strategy_before:
+            if "leverage" not in strategy_before:
                 sync_conn.execute(text(
                     "UPDATE strategy_settings SET "
-                    "min_signal_strength = 50, "
-                    "use_volume_filter = 0, "
-                    "min_hours_between_signals = 20, "
+                    "leverage = 20, "
+                    "min_hours_between_signals = 24, "
                     "max_signals_per_day = 1 "
                     "WHERE id = 1"
+                ))
+            signals_before = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(signals)")).fetchall()}
+            if "leverage" not in signals_before:
+                sync_conn.execute(text(
+                    "UPDATE signals SET leverage = 20 WHERE leverage IS NULL OR leverage = 0"
+                ))
+                sync_conn.execute(text(
+                    "UPDATE signals SET pnl_percent = pnl_percent * 20 "
+                    "WHERE pnl_percent IS NOT NULL AND ABS(pnl_percent) < 15"
                 ))
 
         await conn.run_sync(migrate)

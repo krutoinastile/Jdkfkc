@@ -22,6 +22,7 @@ from app.database.repositories import (
 from app.services.market_data import fetch_candles, fetch_current_price
 from app.services.strategy import analyze_candles
 from app.services.strategy_config import StrategyConfig
+from app.utils.leverage import get_leverage, spot_to_leveraged
 from app.utils.messages import format_signal_card, format_trade_closed
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,7 @@ async def run_market_scan(
         signal_type=trade_signal.signal_type,
         strength=trade_signal.strength,
         macd_hist=trade_signal.macd_hist,
+        leverage=db_cfg.leverage,
     )
     if settings.notify_on_signal:
         await notify_signal(bot, session, signal)
@@ -89,23 +91,24 @@ async def check_open_trades(session: AsyncSession, settings: Settings) -> list[S
     closed: list[Signal] = []
 
     for signal in await list_open_signals(session):
+        lev = get_leverage(signal)
         if signal.direction == "long":
             if price >= signal.take_profit:
-                pnl = (signal.take_profit - signal.entry_price) / signal.entry_price * 100
-                await close_signal(session, signal, status=TradeStatus.WIN.value, exit_price=price, pnl_percent=pnl)
+                spot = (signal.take_profit - signal.entry_price) / signal.entry_price * 100
+                await close_signal(session, signal, status=TradeStatus.WIN.value, exit_price=price, pnl_percent=spot_to_leveraged(spot, lev))
                 closed.append(signal)
             elif price <= signal.stop_loss:
-                pnl = (signal.stop_loss - signal.entry_price) / signal.entry_price * 100
-                await close_signal(session, signal, status=TradeStatus.LOSS.value, exit_price=price, pnl_percent=pnl)
+                spot = (signal.stop_loss - signal.entry_price) / signal.entry_price * 100
+                await close_signal(session, signal, status=TradeStatus.LOSS.value, exit_price=price, pnl_percent=spot_to_leveraged(spot, lev))
                 closed.append(signal)
         else:
             if price <= signal.take_profit:
-                pnl = (signal.entry_price - signal.take_profit) / signal.entry_price * 100
-                await close_signal(session, signal, status=TradeStatus.WIN.value, exit_price=price, pnl_percent=pnl)
+                spot = (signal.entry_price - signal.take_profit) / signal.entry_price * 100
+                await close_signal(session, signal, status=TradeStatus.WIN.value, exit_price=price, pnl_percent=spot_to_leveraged(spot, lev))
                 closed.append(signal)
             elif price >= signal.stop_loss:
-                pnl = (signal.entry_price - signal.stop_loss) / signal.entry_price * 100
-                await close_signal(session, signal, status=TradeStatus.LOSS.value, exit_price=price, pnl_percent=pnl)
+                spot = (signal.entry_price - signal.stop_loss) / signal.entry_price * 100
+                await close_signal(session, signal, status=TradeStatus.LOSS.value, exit_price=price, pnl_percent=spot_to_leveraged(spot, lev))
                 closed.append(signal)
 
     await expire_old_signals(session)

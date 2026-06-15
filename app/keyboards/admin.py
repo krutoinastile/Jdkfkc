@@ -48,6 +48,11 @@ def strategy_keyboard(cfg: StrategySettings) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="Сила: 70", callback_data="admin:strategy:str:70"),
             ],
             [
+                InlineKeyboardButton(text="x10", callback_data="admin:strategy:lev:10"),
+                InlineKeyboardButton(text="x20", callback_data="admin:strategy:lev:20"),
+                InlineKeyboardButton(text="x25", callback_data="admin:strategy:lev:25"),
+            ],
+            [
                 InlineKeyboardButton(text="1/день", callback_data="admin:strategy:daymax:1"),
                 InlineKeyboardButton(text="2/день", callback_data="admin:strategy:daymax:2"),
                 InlineKeyboardButton(text="Пауза 20ч", callback_data="admin:strategy:cooldown:20"),

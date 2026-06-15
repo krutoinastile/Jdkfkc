@@ -20,8 +20,9 @@ class StrategyConfig:
     use_higher_tf: bool = True
     scanning_enabled: bool = True
     min_signal_strength: int = 50
-    min_hours_between_signals: float = 20.0
+    min_hours_between_signals: float = 24.0
     max_signals_per_day: int = 1
+    leverage: int = 20
 
     @classmethod
     def from_db(cls, row) -> "StrategyConfig":
@@ -43,6 +44,7 @@ class StrategyConfig:
             use_higher_tf=row.use_higher_tf,
             scanning_enabled=row.scanning_enabled,
             min_signal_strength=row.min_signal_strength,
-            min_hours_between_signals=getattr(row, "min_hours_between_signals", 20.0),
+            min_hours_between_signals=getattr(row, "min_hours_between_signals", 24.0),
             max_signals_per_day=getattr(row, "max_signals_per_day", 1),
+            leverage=getattr(row, "leverage", 20),
         )

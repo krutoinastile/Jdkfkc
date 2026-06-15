@@ -34,6 +34,7 @@ def strategy_text(cfg) -> str:
         f"EMA: {cfg.ema_fast}/{cfg.ema_slow}/{cfg.ema_trend}\n"
         f"SL: <b>{cfg.atr_sl_mult}×ATR</b> | TP: <b>{cfg.atr_tp_mult}×ATR</b>\n"
         f"Мин. сила сигнала: <b>{cfg.min_signal_strength}/100</b>\n"
+        f"Плечо: <b>{cfg.leverage}x</b>\n"
         f"Лимит: <b>{cfg.max_signals_per_day}</b> сигн/день · пауза <b>{cfg.min_hours_between_signals:.0f}ч</b>\n\n"
         f"MACD фильтр: {'✅' if cfg.use_macd_filter else '❌'}\n"
         f"Объём фильтр: {'✅' if cfg.use_volume_filter else '❌'}\n"
@@ -196,6 +197,17 @@ async def set_strength(callback: CallbackQuery, session: AsyncSession) -> None:
     val = int(callback.data.rsplit(":", maxsplit=1)[-1])
     cfg = await update_strategy_settings(session, min_signal_strength=val)
     await callback.answer(f"Мин. сила: {val}")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data.regexp(r"^admin:strategy:lev:\d+$"))
+async def set_leverage(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    val = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    cfg = await update_strategy_settings(session, leverage=val)
+    await callback.answer(f"Плечо: {val}x")
     if isinstance(callback.message, Message):
         await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
 

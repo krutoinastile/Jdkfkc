@@ -19,6 +19,7 @@ from app.utils.formatting import (
     strength_bar,
     win_rate_bar,
 )
+from app.utils.leverage import get_leverage, leveraged_move
 
 
 def welcome_text() -> str:
@@ -26,7 +27,8 @@ def welcome_text() -> str:
         f"{header('₿ BTC Trading Bot', 'Аналитика и сигналы в реальном времени')}\n"
         f"{section('Возможности')}\n"
         f"{bullet_list([
-            '📊 Сигналы LONG / SHORT с графиками',
+            '📊 Сигналы LONG / SHORT · плечо 20x',
+            '⏱ ~1 сделка в день',
             '📈 EMA · RSI · MACD · ATR стратегия',
             '😱 Fear & Greed · Funding · Open Interest',
             '🔥 Ликвидации Binance Futures',
@@ -181,16 +183,20 @@ def format_signal_card(signal: Signal, *, is_new: bool = False) -> str:
 
     sl_pct = abs(signal.stop_loss - signal.entry_price) / signal.entry_price * 100
     tp_pct = abs(signal.take_profit - signal.entry_price) / signal.entry_price * 100
+    lev = get_leverage(signal)
+    sl_lev = leveraged_move(sl_pct, lev)
+    tp_lev = leveraged_move(tp_pct, lev)
 
     return (
-        f"{header(title, 'BTC/USDT · ' + signal.timeframe)}\n\n"
+        f"{header(title, f'BTC/USDT · {signal.timeframe} · {lev}x')}\n\n"
         f"   {dir_badge} · {type_label}\n"
         f"   {strength_bar(strength)}\n"
         f"{section('Уровни')}\n"
         f"{kv('💰 Вход', f'<b>{money(signal.entry_price)}</b>')}\n"
-        f"{kv('🛑 SL', f'<b>{money(signal.stop_loss)}</b> (−{sl_pct:.2f}%)')}\n"
-        f"{kv('🎯 TP', f'<b>{money(signal.take_profit)}</b> (+{tp_pct:.2f}%)')}\n"
+        f"{kv('🛑 SL', f'<b>{money(signal.stop_loss)}</b> (−{sl_lev:.1f}% при {lev}x)')}\n"
+        f"{kv('🎯 TP', f'<b>{money(signal.take_profit)}</b> (+{tp_lev:.1f}% при {lev}x)')}\n"
         f"{kv('📐 R:R', f'<b>1:{rr}</b>')}\n"
+        f"{kv('⚡ Плечо', f'<b>{lev}x</b>')}\n"
         f"{section('Анализ')}\n"
         f"{kv('RSI', str(signal.rsi))}\n"
         f"{kv('ATR', money(signal.atr))}\n"
@@ -315,14 +321,15 @@ def format_trade_closed(signal: Signal) -> str:
     else:
         emoji, label = "⏱", "ИСТЁК"
 
-    direction = "🟢 LONG" if signal.direction == "long" else "🔴 SHORT"
+    direction = badge("LONG", style="long") if signal.direction == "long" else badge("SHORT", style="short")
+    lev = get_leverage(signal)
     return (
         f"{header(f'{emoji} Сделка закрыта', label)}\n"
         f"{section('Детали')}\n"
-        f"  Направление: <b>{direction}</b>\n"
+        f"  Направление: <b>{direction}</b> · <b>{lev}x</b>\n"
         f"  Вход: <b>{money(signal.entry_price)}</b>\n"
         f"  Выход: <b>{money(signal.exit_price or 0)}</b>\n"
-        f"  P&L: <b>{pnl(signal.pnl_percent or 0)}</b>"
+        f"  P&L ({lev}x): <b>{pnl(signal.pnl_percent or 0)}</b>"
     )
 
 
@@ -415,7 +422,7 @@ def format_calculator_result(sim) -> str:  # noqa: ANN001
     period = period_label(sim.period_days)
 
     return (
-        f"{header(f'{profit_emoji} Результат', f'{period} · старт {money(sim.initial_capital)}')}\n"
+        f"{header(f'{profit_emoji} Результат', f'{period} · {money(sim.initial_capital)} · 20x')}\n"
         f"{section('Заработок')}\n"
         f"{kv('📅 Период', f'<b>{period}</b>')}\n"
         f"{kv('💵 Старт', f'<b>{money(sim.initial_capital)}</b>')}\n"
@@ -461,7 +468,7 @@ def format_backtest_intro(timeframe: str) -> str:
     return (
         f"{header('🔬 Бэктест', 'Симуляция на истории')}\n\n"
         f"Таймфрейм стратегии: <b>{timeframe}</b>\n"
-        f"Капитал в симуляции: <b>$1,000</b>\n\n"
+        f"Плечо: <b>20x</b> · Капитал: <b>$1,000</b>\n\n"
         f"Выберите период:\n"
         f"   {periods}\n\n"
         f"<i>Стратегия прогоняется на исторических свечах\n"
@@ -502,7 +509,7 @@ def format_backtest_result(result, *, timeframe: str, days: int, bars: int) -> s
     trades_per_month = len(result.trades) / max(covered, 1) * 30
 
     return (
-        f"{header('🔬 Бэктест', f'{label} · {timeframe}')}\n"
+        f"{header('🔬 Бэктест', f'{label} · {timeframe} · 20x')}\n"
         f"{section('Период')}\n"
         f"{kv('Запрошено', f'<b>{label}</b>')}\n"
         f"{kv('Свечей', f'<b>{bars}</b> (~{covered} дн.)')}\n"

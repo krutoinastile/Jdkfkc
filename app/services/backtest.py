@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from app.database.models import TradeStatus
 from app.services.market_data import Candle
 from app.services.strategy import TradeSignal, analyze_candles
+from app.utils.leverage import spot_to_leveraged
 from app.services.strategy_config import StrategyConfig
 
 
@@ -101,6 +102,7 @@ def run_backtest(
                 open_pos["strength"],
             )
             if closed:
+                closed.pnl_percent = spot_to_leveraged(closed.pnl_percent, cfg.leverage)
                 trades.append(closed)
                 capital *= 1 + closed.pnl_percent / 100
                 open_pos = None

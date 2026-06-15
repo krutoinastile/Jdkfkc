@@ -317,10 +317,16 @@ async def get_signal_by_id(session: AsyncSession, signal_id: int) -> Signal | No
 
 
 async def force_close_signal(session: AsyncSession, signal: Signal, exit_price: float) -> Signal:
+    from app.utils.leverage import get_leverage, spot_to_leveraged
+
+    lev = get_leverage(signal)
     if signal.direction == "long":
-        pnl = (exit_price - signal.entry_price) / signal.entry_price * 100
+        spot = (exit_price - signal.entry_price) / signal.entry_price * 100
     else:
-        pnl = (signal.entry_price - exit_price) / signal.entry_price * 100
-    status = TradeStatus.WIN.value if pnl > 0 else TradeStatus.LOSS.value
-    return await close_signal(session, signal, status=status, exit_price=exit_price, pnl_percent=pnl)
+        spot = (signal.entry_price - exit_price) / signal.entry_price * 100
+    status = TradeStatus.WIN.value if spot > 0 else TradeStatus.LOSS.value
+    return await close_signal(
+        session, signal, status=status, exit_price=exit_price,
+        pnl_percent=spot_to_leveraged(spot, lev),
+    )
 
