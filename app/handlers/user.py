@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart, StateFilter
@@ -21,8 +22,8 @@ from app.database.repositories import (
 )
 from app.keyboards.user import (
     back_keyboard,
-    backtest_period_keyboard,
     backtest_result_keyboard,
+    backtest_trades_keyboard,
     calculator_amount_keyboard,
     calculator_period_keyboard,
     calculator_result_keyboard,
@@ -38,7 +39,7 @@ from app.services.backtest import run_backtest
 from app.services.derivatives import fetch_derivatives_stats
 from app.services.funding import fetch_funding_rate
 from app.services.market_data import fetch_candles
-from app.services.profit_calc import PERIOD_OPTIONS, period_label, simulate_profit
+from app.services.profit_calc import PERIOD_OPTIONS, period_label as calc_period_label, simulate_profit
 from app.services.sentiment import fetch_fear_greed
 from app.services.strategy import market_snapshot
 from app.services.strategy_config import StrategyConfig
@@ -63,7 +64,15 @@ from app.utils.messages import (
 )
 from app.utils.telegram import answer_with_chart
 
-from app.utils.backtest_ui import BACKTEST_PERIODS, candles_for_period, htf_candles_for_period, period_label
+from app.utils.backtest_ui import (
+    BACKTEST_DAYS,
+    BACKTEST_MAX_TRADES,
+    candles_for_period,
+    htf_candles_for_period,
+    min_hours_for_max_trades,
+    period_label,
+    trades_per_day_label,
+)
 
 router = Router(name="user")
 
@@ -279,7 +288,7 @@ async def calc_custom_start(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(CalculatorStates.waiting_amount)
     await state.update_data(period_days=days)
     if isinstance(callback.message, Message):
-        label = period_label(days)
+        label = calc_period_label(days)
         await callback.message.answer(
             f"📅 Период: <b>{label}</b>\n\n"
             f"Введите стартовый капитал в USD (например: <b>2500</b>)\n\n"
@@ -320,16 +329,28 @@ async def menu_backtest(callback: CallbackQuery, session: AsyncSession, settings
     cfg = await _cfg(session)
     await callback.message.answer(
         format_backtest_intro(cfg.timeframe),
-        reply_markup=backtest_period_keyboard(),
+        reply_markup=backtest_trades_keyboard(),
     )
 
 
-async def _run_backtest(message: Message, session: AsyncSession, settings: Settings, days: int) -> None:
-    if days not in BACKTEST_PERIODS:
-        await message.answer("Неизвестный период.", reply_markup=back_keyboard())
+async def _run_backtest(
+    message: Message,
+    session: AsyncSession,
+    settings: Settings,
+    *,
+    max_trades_per_day: int,
+) -> None:
+    if max_trades_per_day not in BACKTEST_MAX_TRADES:
+        await message.answer("Неизвестный лимит.", reply_markup=back_keyboard())
         return
 
     cfg = await _cfg(session)
+    cfg = replace(
+        cfg,
+        max_signals_per_day=max_trades_per_day,
+        min_hours_between_signals=min_hours_for_max_trades(max_trades_per_day),
+    )
+    days = BACKTEST_DAYS
     limit = candles_for_period(days, cfg.timeframe)
     htf_limit = htf_candles_for_period(days, cfg.higher_tf) if cfg.use_higher_tf else 0
 
@@ -349,17 +370,23 @@ async def _run_backtest(message: Message, session: AsyncSession, settings: Setti
         htf_candles=htf_candles,
         initial_capital=1000.0,
     )
-    text = format_backtest_result(result, timeframe=cfg.timeframe, days=days, bars=len(candles))
-    await message.answer(text, reply_markup=backtest_result_keyboard(days))
+    text = format_backtest_result(
+        result,
+        timeframe=cfg.timeframe,
+        days=days,
+        bars=len(candles),
+        max_trades_per_day=max_trades_per_day,
+    )
+    await message.answer(text, reply_markup=backtest_result_keyboard())
 
 
-@router.callback_query(F.data.regexp(r"^backtest:run:\d+$"))
+@router.callback_query(F.data.regexp(r"^backtest:max:\d+$"))
 async def backtest_run(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
     if callback.data is None or not isinstance(callback.message, Message):
         return
-    days = int(callback.data.rsplit(":", maxsplit=1)[-1])
-    await callback.answer(f"Считаю {period_label(days)}...")
-    await _run_backtest(callback.message, session, settings, days)
+    max_trades = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    await callback.answer(f"Считаю 30 дней · {trades_per_day_label(max_trades)}...")
+    await _run_backtest(callback.message, session, settings, max_trades_per_day=max_trades)
 
 
 @router.callback_query(F.data == "menu:signal")

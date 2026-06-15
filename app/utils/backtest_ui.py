@@ -1,12 +1,15 @@
-"""Backtest period helpers."""
+"""Backtest helpers."""
 
 from __future__ import annotations
 
-BACKTEST_PERIODS: dict[int, str] = {
-    30: "30 дней",
-    90: "90 дней",
-    180: "6 месяцев",
-    365: "1 год",
+BACKTEST_DAYS = 30
+
+BACKTEST_MAX_TRADES: dict[int, str] = {
+    1: "1 в день",
+    2: "2 в день",
+    3: "3 в день",
+    5: "5 в день",
+    10: "10 в день",
 }
 
 BARS_PER_DAY = {"1h": 24, "4h": 6, "1d": 1}
@@ -14,8 +17,20 @@ WARMUP_BARS = 90
 MAX_CANDLES = 9000
 
 
-def period_label(days: int) -> str:
-    return BACKTEST_PERIODS.get(days, f"{days} дн.")
+def period_label(days: int = BACKTEST_DAYS) -> str:
+    if days == 30:
+        return "30 дней"
+    return f"{days} дн."
+
+
+def trades_per_day_label(max_per_day: int) -> str:
+    return BACKTEST_MAX_TRADES.get(max_per_day, f"{max_per_day} в день")
+
+
+def min_hours_for_max_trades(max_per_day: int) -> float:
+    if max_per_day <= 0:
+        return 0.0
+    return 24.0 / max_per_day
 
 
 def candles_for_period(days: int, timeframe: str) -> int:

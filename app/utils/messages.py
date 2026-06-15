@@ -462,30 +462,38 @@ def format_calculator_empty(*, days: int | None = None) -> str:
 
 
 def format_backtest_intro(timeframe: str) -> str:
-    from app.utils.backtest_ui import BACKTEST_PERIODS
+    from app.utils.backtest_ui import BACKTEST_DAYS, BACKTEST_MAX_TRADES
 
-    periods = " · ".join(BACKTEST_PERIODS.values())
+    limits = " · ".join(BACKTEST_MAX_TRADES.values())
     return (
-        f"{header('🔬 Бэктест', 'Симуляция на истории')}\n\n"
-        f"Таймфрейм стратегии: <b>{timeframe}</b>\n"
-        f"Плечо: <b>20x</b> · Капитал: <b>$1,000</b>\n"
-        f"Лимит: <b>до 1 сделки в день</b> · пауза <b>24ч</b>\n\n"
-        f"Выберите период:\n"
-        f"   {periods}\n\n"
-        f"<i>«1 в день» = максимум, не гарантия каждый календарный день.\n"
-        f"Сделка только когда стратегия видит вход на рынке.</i>"
+        f"{header('🔬 Бэктест', 'Симуляция за месяц')}\n\n"
+        f"Период: <b>{BACKTEST_DAYS} дней</b>\n"
+        f"Таймфрейм: <b>{timeframe}</b>\n"
+        f"Плечо: <b>20x</b> · Капитал: <b>$1,000</b>\n\n"
+        f"Выберите лимит сделок в день:\n"
+        f"   {limits}\n\n"
+        f"<i>Лимит = максимум входов в сутки, если стратегия\n"
+        f"находит условия на рынке (не каждый день).</i>"
         f"{footer()}"
     )
 
 
-def format_backtest_result(result, *, timeframe: str, days: int, bars: int) -> str:  # noqa: ANN001
+def format_backtest_result(
+    result,
+    *,
+    timeframe: str,
+    days: int,
+    bars: int,
+    max_trades_per_day: int,
+) -> str:  # noqa: ANN001
     from app.services.backtest import BacktestResult
-    from app.utils.backtest_ui import period_days_from_candles, period_label
+    from app.utils.backtest_ui import period_days_from_candles, period_label, trades_per_day_label
 
     if not isinstance(result, BacktestResult):
         raise TypeError("result must be BacktestResult")
 
     label = period_label(days)
+    limit_label = trades_per_day_label(max_trades_per_day)
     covered = period_days_from_candles(bars, timeframe)
     trades_per_month = len(result.trades) / max(covered, 1) * 30
     history_note = ""
@@ -496,16 +504,17 @@ def format_backtest_result(result, *, timeframe: str, days: int, bars: int) -> s
         )
     elif result.trades:
         history_note = (
-            f"\n<i>ℹ️ Лимит: до 1 сделки в сутки (не каждый день есть сигнал).\n"
+            f"\n<i>ℹ️ Лимит: до {limit_label} · фактически макс {result.max_trades_per_day}/день.\n"
             f"~{covered:.0f} дн. · {len(result.trades)} сделок · 20x · 100% банка.</i>"
         )
 
     if not result.trades:
         return (
             f"{header('🔬 Бэктест', f'{label} · {timeframe}')}\n\n"
+            f"📊 Лимит: <b>{limit_label}</b>\n"
             f"📊 Свечей загружено: <b>{bars}</b> (~{covered} дн.)\n\n"
-            f"За выбранный период сигналов не найдено.\n"
-            f"<i>Попробуйте больший период или снизьте\n"
+            f"За месяц сигналов не найдено.\n"
+            f"<i>Попробуйте больший лимит сделок или снизьте\n"
             f"мин. силу сигнала в админке.</i>"
             f"{history_note}"
             f"{footer()}"
@@ -513,15 +522,15 @@ def format_backtest_result(result, *, timeframe: str, days: int, bars: int) -> s
 
     profit = result.final_capital - result.simulated_capital
     profit_emoji = "📈" if profit >= 0 else "📉"
-    trades_per_month = len(result.trades) / max(covered, 1) * 30
 
     return (
         f"{header('🔬 Бэктест', f'{label} · {timeframe} · 20x')}\n"
-        f"{section('Период')}\n"
-        f"{kv('Запрошено', f'<b>{label}</b>')}\n"
+        f"{section('Настройки')}\n"
+        f"{kv('Период', f'<b>{label}</b>')}\n"
+        f"{kv('Лимит', f'<b>{limit_label}</b>')}\n"
         f"{kv('Свечей', f'<b>{bars}</b> (~{covered} дн.)')}\n"
         f"{kv('~Сделок/мес', f'<b>{trades_per_month:.1f}</b>')}\n"
-        f"{kv('Лимит 1/день', f'макс <b>{result.max_trades_per_day}</b> · ср. <b>{result.avg_trades_per_day:.2f}</b>/день')}\n"
+        f"{kv('Факт макс/день', f'<b>{result.max_trades_per_day}</b> · ср. <b>{result.avg_trades_per_day:.2f}</b>')}\n"
         f"{section('Сделки')}\n"
         f"{kv('Всего', f'<b>{len(result.trades)}</b>')}\n"
         f"{kv('Результат', f'✅ {result.wins} · ❌ {result.losses}')}\n"
