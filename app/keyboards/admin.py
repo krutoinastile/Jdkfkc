@@ -94,14 +94,37 @@ def _toggle(name: str, enabled: bool) -> str:
     return f"{name}: {'✅' if enabled else '❌'}"
 
 
-def users_keyboard(page: int, total: int, page_size: int = 10) -> InlineKeyboardMarkup:
+def users_keyboard(page: int, total: int, users: list | None = None, page_size: int = 10) -> InlineKeyboardMarkup:
+    from app.database.billing_repositories import is_subscription_active
+
+    rows: list[list[InlineKeyboardButton]] = []
+    if users:
+        for u in users[:page_size]:
+            name = (u.username or str(u.tg_id))[:18]
+            mark = "💎" if is_subscription_active(u) else "👤"
+            rows.append(
+                [InlineKeyboardButton(text=f"{mark} {name}", callback_data=f"admin:user:{u.id}")]
+            )
     nav: list[InlineKeyboardButton] = []
     if page > 0:
         nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"admin:users:{page - 1}"))
     if (page + 1) * page_size < total:
         nav.append(InlineKeyboardButton(text="➡️", callback_data=f"admin:users:{page + 1}"))
-    rows: list[list[InlineKeyboardButton]] = []
     if nav:
         rows.append(nav)
     rows.append([InlineKeyboardButton(text="◀️ Админ", callback_data="admin:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def user_subscription_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="+7 дн.", callback_data=f"admin:sub:{user_id}:7"),
+                InlineKeyboardButton(text="+30 дн.", callback_data=f"admin:sub:{user_id}:30"),
+                InlineKeyboardButton(text="+90 дн.", callback_data=f"admin:sub:{user_id}:90"),
+            ],
+            [InlineKeyboardButton(text="❌ Отозвать подписку", callback_data=f"admin:sub:{user_id}:revoke")],
+            [InlineKeyboardButton(text="◀️ Пользователи", callback_data="admin:users:0")],
+        ]
+    )

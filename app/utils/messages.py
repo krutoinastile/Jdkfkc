@@ -51,7 +51,7 @@ def help_text() -> str:
             'Рынок — цена, индикаторы + график',
             'Статистика — win rate и P&L',
             'Калькулятор — прибыль за период с выбранным капиталом',
-            'Бэктест — проверка за 30 дней (1h TF)',
+            'Бэктест — 30 или 90 дней + кривая капитала',
             'История — прошлые сделки',
             'Уведомления — сигналы, ликвидации, funding',
         ])}\n"
@@ -364,13 +364,16 @@ def format_trade_closed(signal: Signal) -> str:
 
     direction = badge("LONG", style="long") if signal.direction == "long" else badge("SHORT", style="short")
     lev = get_leverage(signal)
+    partial_note = ""
+    if getattr(signal, "partial_tp_hit", False):
+        partial_note = "\n  🎯 Частичный TP 50% на +2R был зафиксирован"
     return (
         f"{header(f'{emoji} Сделка закрыта', label)}\n"
         f"{section('Детали')}\n"
         f"  Направление: <b>{direction}</b> · <b>{lev}x</b>\n"
         f"  Вход: <b>{money(signal.entry_price)}</b>\n"
         f"  Выход: <b>{money(signal.exit_price or 0)}</b>\n"
-        f"  P&L ({lev}x): <b>{pnl(signal.pnl_percent or 0)}</b>"
+        f"  P&L ({lev}x): <b>{pnl(signal.pnl_percent or 0)}</b>{partial_note}"
     )
 
 
@@ -504,20 +507,18 @@ def format_calculator_empty(*, days: int | None = None) -> str:
 
 
 def format_backtest_intro(timeframe: str) -> str:
-    from app.utils.backtest_ui import BACKTEST_DAYS, BACKTEST_MAX_TRADES
+    from app.utils.backtest_ui import BACKTEST_PERIODS
 
-    limits = " · ".join(BACKTEST_MAX_TRADES.values())
+    periods = " · ".join(BACKTEST_PERIODS.values())
     return (
-        f"{header('🔬 Бэктест', 'Симуляция за месяц')}\n\n"
-        f"Период: <b>{BACKTEST_DAYS} дней</b>\n"
+        f"{header('🔬 Бэктест', 'Симуляция на истории')}\n\n"
+        f"Период: <b>{periods}</b>\n"
         f"Таймфрейм: <b>{timeframe}</b> "
         f"{'✅' if timeframe == '1h' else '⚠️ стратегия оптимизирована под 1h'}\n"
         f"Плечо: <b>20x</b> · Капитал: <b>$1,000</b>\n"
         f"Ставка: <b>10% банка</b> на сделку\n\n"
-        f"Выберите лимит сделок в день:\n"
-        f"   {limits}\n\n"
-        f"<i>Лимит = максимум входов в сутки, если стратегия\n"
-        f"находит условия на рынке (не каждый день).</i>"
+        f"<i>Выберите период, затем лимит сделок в день.\n"
+        f"В отчёте — кривая капитала.</i>"
         f"{footer()}"
     )
 

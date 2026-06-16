@@ -41,6 +41,7 @@ class BacktestResult:
     final_capital: float
     max_trades_per_day: int = 0
     avg_trades_per_day: float = 0.0
+    equity_curve: list[float] | None = None
 
 
 def _htf_slice(htf_candles: list[Candle] | None, up_to_time: int) -> list[Candle] | None:
@@ -123,6 +124,7 @@ def run_backtest(
     trades: list[BacktestTrade] = []
     open_pos: dict | None = None
     capital = initial_capital
+    equity_curve: list[float] = [capital]
     last_open_time: int | None = None
     signals_day: int | None = None
     signals_today = 0
@@ -149,6 +151,7 @@ def run_backtest(
                 trades.append(closed)
                 bank_pnl = pnl_on_bank(closed.pnl_percent, DEFAULT_BANK_ALLOCATION_PCT)
                 capital *= 1 + bank_pnl / 100
+                equity_curve.append(round(capital, 2))
                 open_pos = None
 
         if open_pos is None:
@@ -198,4 +201,5 @@ def run_backtest(
         final_capital=round(capital, 2),
         max_trades_per_day=max_trades_per_day,
         avg_trades_per_day=round(avg_trades_per_day, 2),
+        equity_curve=equity_curve,
     )

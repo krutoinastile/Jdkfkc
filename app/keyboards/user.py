@@ -31,19 +31,36 @@ def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def backtest_trades_keyboard() -> InlineKeyboardMarkup:
+def backtest_period_keyboard() -> InlineKeyboardMarkup:
+    from app.utils.backtest_ui import BACKTEST_PERIODS
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=f"📅 {label}", callback_data=f"backtest:period:{days}")
+                for days, label in BACKTEST_PERIODS.items()
+            ],
+            [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
+        ]
+    )
+
+
+def backtest_trades_keyboard(days: int) -> InlineKeyboardMarkup:
     from app.utils.backtest_ui import BACKTEST_MAX_TRADES
 
     rows = [
         [
-            InlineKeyboardButton(text=f"📊 {label}", callback_data=f"backtest:max:{max_per_day}")
+            InlineKeyboardButton(text=f"📊 {label}", callback_data=f"backtest:run:{days}:{max_per_day}")
             for max_per_day, label in list(BACKTEST_MAX_TRADES.items())[:3]
         ],
         [
-            InlineKeyboardButton(text=f"📊 {label}", callback_data=f"backtest:max:{max_per_day}")
+            InlineKeyboardButton(text=f"📊 {label}", callback_data=f"backtest:run:{days}:{max_per_day}")
             for max_per_day, label in list(BACKTEST_MAX_TRADES.items())[3:]
         ],
-        [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
+        [
+            InlineKeyboardButton(text="◀️ Период", callback_data="menu:backtest"),
+            InlineKeyboardButton(text="🏠 Меню", callback_data="menu:home"),
+        ],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

@@ -65,7 +65,7 @@ async def run_bot(settings: Settings) -> None:
                 except Exception:
                     logger.exception("Invoice poll failed")
 
-        scheduler.add_job(invoice_poll_job, "interval", seconds=45, id="invoice_poll")
+        scheduler.add_job(invoice_poll_job, "interval", seconds=settings.invoice_poll_seconds, id="invoice_poll")
 
         async def health_check_job() -> None:
             try:
@@ -92,11 +92,26 @@ async def run_bot(settings: Settings) -> None:
 
         liq_task = asyncio.create_task(run_liquidation_monitor(bot, session_pool))
 
+        webhook_runner = None
+        if settings.webhook_port > 0:
+            try:
+                from app.web.cryptopay_webhook import start_webhook_server
+
+                webhook_runner = await start_webhook_server(
+                    settings=settings,
+                    session_pool=session_pool,
+                    bot=bot,
+                )
+            except Exception:
+                logger.exception("Crypto Pay webhook server failed to start")
+
         logger.info("Bot online: symbol=%s", settings.symbol)
         try:
             await bot.delete_webhook(drop_pending_updates=True)
             await dispatcher.start_polling(bot)
         finally:
+            if webhook_runner is not None:
+                await webhook_runner.cleanup()
             liq_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await liq_task

@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     scan_interval_minutes: int = Field(default=15, validation_alias="SCAN_INTERVAL_MINUTES")
     trade_check_interval_minutes: int = Field(default=5, validation_alias="TRADE_CHECK_INTERVAL_MINUTES")
     notify_on_signal: bool = Field(default=True, validation_alias="NOTIFY_ON_SIGNAL")
+    webhook_host: str = Field(default="0.0.0.0", validation_alias="WEBHOOK_HOST")
+    webhook_port: int = Field(default=0, validation_alias="WEBHOOK_PORT")
+    cryptopay_webhook_path: str = Field(default="/cryptopay/webhook", validation_alias="CRYPTOPAY_WEBHOOK_PATH")
+    invoice_poll_seconds: int = Field(default=15, validation_alias="INVOICE_POLL_SECONDS")
+    bingx_api_key: str = Field(default="", validation_alias="BINGX_API_KEY")
+    bingx_api_secret: str = Field(default="", validation_alias="BINGX_API_SECRET")
+    bingx_testnet: bool = Field(default=False, validation_alias="BINGX_TESTNET")
 
     @property
     def parsed_admin_ids(self) -> tuple[int, ...]:

@@ -145,3 +145,26 @@ def render_chart(
     plt.close(fig)
     buf.seek(0)
     return buf.read()
+
+
+def render_equity_curve(equity: list[float], *, initial: float = 1000.0, title: str = "Equity Curve") -> bytes:
+    if len(equity) < 2:
+        equity = [initial, initial]
+
+    fig, ax = plt.subplots(figsize=(10, 4), facecolor=BG)
+    _style_ax(ax)
+    xs = list(range(len(equity)))
+    color = GREEN if equity[-1] >= initial else RED
+    ax.plot(xs, equity, color=color, linewidth=2)
+    ax.fill_between(xs, initial, equity, alpha=0.12, color=color)
+    ax.axhline(initial, color=MUTED, linestyle="--", linewidth=0.8, alpha=0.7)
+    ax.set_title(title, color=TEXT, fontsize=12, loc="left", pad=10)
+    ax.set_ylabel("Capital $", color=MUTED, fontsize=8)
+    ax.set_xlabel("Сделка #", color=MUTED, fontsize=8)
+    fig.text(0.98, 0.02, f"${equity[-1]:,.0f}", ha="right", color=color, fontsize=11, fontweight="bold")
+    fig.subplots_adjust(left=0.1, right=0.96, top=0.9, bottom=0.14)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=120, facecolor=BG)
+    plt.close(fig)
+    buf.seek(0)
+    return buf.read()

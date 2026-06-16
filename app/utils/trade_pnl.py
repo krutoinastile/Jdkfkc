@@ -33,6 +33,30 @@ def distance_pct(from_price: float, to_price: float) -> float:
     return abs(to_price - from_price) / from_price * 100
 
 
+def partial_tp_price(signal: Signal) -> float:
+    risk = initial_risk(signal)
+    entry = signal.entry_price
+    if signal.direction == "long":
+        return entry + 2 * risk
+    return entry - 2 * risk
+
+
+def partial_tp_hit(signal: Signal, price: float) -> bool:
+    if signal.partial_tp_hit:
+        return False
+    pt = partial_tp_price(signal)
+    if signal.direction == "long":
+        return price >= pt
+    return price <= pt
+
+
+def combined_close_pnl(signal: Signal, margin_pnl: float) -> float:
+    """Final P&L including 50% partial at 2R if taken."""
+    if signal.partial_tp_hit and signal.partial_pnl_percent is not None:
+        return round(signal.partial_pnl_percent + margin_pnl * 0.5, 2)
+    return round(margin_pnl, 2)
+
+
 def format_live_trade(signal: Signal, price: float) -> str:
     from app.utils.formatting import kv, money, pnl_colored
     from app.utils.leverage import leveraged_move
@@ -67,7 +91,9 @@ def format_live_trade(signal: Signal, price: float) -> str:
         r_multiple = move / risk
 
     sl_note = ""
-    if signal.initial_stop_loss is not None and signal.stop_loss != signal.initial_stop_loss:
+    if signal.partial_tp_hit:
+        sl_note = " · ✅ 50% на +2R"
+    elif signal.initial_stop_loss is not None and signal.stop_loss != signal.initial_stop_loss:
         sl_note = " · 🛡 SL подтянут"
 
     return (

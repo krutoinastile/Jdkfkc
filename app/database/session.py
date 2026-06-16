@@ -9,6 +9,8 @@ SIGNAL_MIGRATIONS = (
     ("macd_hist", "FLOAT"),
     ("leverage", "INTEGER DEFAULT 20"),
     ("initial_stop_loss", "FLOAT"),
+    ("partial_tp_hit", "BOOLEAN DEFAULT 0"),
+    ("partial_pnl_percent", "FLOAT"),
 )
 
 USER_MIGRATIONS = (

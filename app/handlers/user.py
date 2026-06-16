@@ -23,6 +23,7 @@ from app.database.repositories import (
 from app.keyboards.user import (
     back_keyboard,
     backtest_result_keyboard,
+    backtest_period_keyboard,
     backtest_trades_keyboard,
     calculator_amount_keyboard,
     calculator_period_keyboard,
@@ -70,6 +71,7 @@ from app.utils.telegram import answer_with_chart
 from app.utils.backtest_ui import (
     BACKTEST_DAYS,
     BACKTEST_MAX_TRADES,
+    BACKTEST_PERIODS,
     candles_for_period,
     htf_candles_for_period,
     min_hours_for_max_trades,
@@ -369,7 +371,21 @@ async def menu_backtest(callback: CallbackQuery, session: AsyncSession, settings
     cfg = await _cfg(session)
     await callback.message.answer(
         format_backtest_intro(cfg.timeframe),
-        reply_markup=backtest_trades_keyboard(),
+        reply_markup=backtest_period_keyboard(),
+    )
+
+
+@router.callback_query(F.data.regexp(r"^backtest:period:\d+$"))
+async def backtest_select_period(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if callback.data is None or not isinstance(callback.message, Message):
+        return
+    days = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    if days not in BACKTEST_PERIODS:
+        return
+    await callback.message.answer(
+        f"📅 Период: <b>{period_label(days)}</b>\n\nВыберите лимит сделок в день:",
+        reply_markup=backtest_trades_keyboard(days),
     )
 
 
@@ -378,6 +394,7 @@ async def _run_backtest(
     session: AsyncSession,
     settings: Settings,
     *,
+    days: int,
     max_trades_per_day: int,
 ) -> None:
     if max_trades_per_day not in BACKTEST_MAX_TRADES:
@@ -390,7 +407,7 @@ async def _run_backtest(
         max_signals_per_day=max_trades_per_day,
         min_hours_between_signals=min_hours_for_max_trades(max_trades_per_day),
     )
-    days = BACKTEST_DAYS
+    days = days if days in BACKTEST_PERIODS else BACKTEST_DAYS
     limit = candles_for_period(days, cfg.timeframe)
     htf_limit = htf_candles_for_period(days, cfg.higher_tf) if cfg.use_higher_tf else 0
 
@@ -419,14 +436,42 @@ async def _run_backtest(
     )
     await message.answer(text, reply_markup=backtest_result_keyboard())
 
+    if result.equity_curve and len(result.equity_curve) > 1:
+        from aiogram.types import BufferedInputFile
+
+        from app.services.chart import render_equity_curve
+
+        chart = await asyncio.to_thread(
+            render_equity_curve,
+            result.equity_curve,
+            initial=result.simulated_capital,
+            title=f"Equity · {period_label(days)} · {cfg.timeframe}",
+        )
+        await message.answer_photo(
+            BufferedInputFile(chart, filename="equity.png"),
+            caption="📈 Кривая капитала (10% банка, реинвест)",
+        )
+
+
+@router.callback_query(F.data.regexp(r"^backtest:run:\d+:\d+$"))
+async def backtest_run(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    if callback.data is None or not isinstance(callback.message, Message):
+        return
+    _, _, days_str, max_str = callback.data.split(":", maxsplit=3)
+    days, max_trades = int(days_str), int(max_str)
+    await callback.answer(f"Считаю {period_label(days)} · {trades_per_day_label(max_trades)}...")
+    await _run_backtest(
+        callback.message, session, settings, days=days, max_trades_per_day=max_trades
+    )
+
 
 @router.callback_query(F.data.regexp(r"^backtest:max:\d+$"))
-async def backtest_run(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+async def backtest_run_legacy(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
     if callback.data is None or not isinstance(callback.message, Message):
         return
     max_trades = int(callback.data.rsplit(":", maxsplit=1)[-1])
     await callback.answer(f"Считаю 30 дней · {trades_per_day_label(max_trades)}...")
-    await _run_backtest(callback.message, session, settings, max_trades_per_day=max_trades)
+    await _run_backtest(callback.message, session, settings, days=30, max_trades_per_day=max_trades)
 
 
 @router.callback_query(F.data == "menu:signal")

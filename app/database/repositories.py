@@ -147,6 +147,27 @@ async def can_open_new_signal(
     return True, "ok"
 
 
+async def mark_partial_take_profit(
+    session: AsyncSession,
+    signal: Signal,
+    partial_pnl: float,
+) -> Signal:
+    signal.partial_tp_hit = True
+    signal.partial_pnl_percent = round(partial_pnl, 2)
+    await session.commit()
+    await session.refresh(signal)
+    return signal
+
+
+async def get_user_by_id(session: AsyncSession, user_id: int) -> User | None:
+    return await session.get(User, user_id)
+
+
+async def get_user_by_tg_id(session: AsyncSession, tg_id: int) -> User | None:
+    result = await session.execute(select(User).where(User.tg_id == tg_id))
+    return result.scalar_one_or_none()
+
+
 async def update_signal_stop_loss(session: AsyncSession, signal: Signal, stop_loss: float) -> Signal:
     signal.stop_loss = round(stop_loss, 2)
     await session.commit()

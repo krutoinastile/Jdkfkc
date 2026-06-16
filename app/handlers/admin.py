@@ -7,16 +7,18 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
+from app.database.billing_repositories import extend_subscription, is_subscription_active, revoke_subscription
 from app.database.repositories import (
     count_users,
     get_statistics,
     get_strategy_settings,
+    get_user_by_id,
     list_open_signals,
     list_users,
     update_strategy_settings,
 )
 from app.filters.admin import AdminFilter
-from app.keyboards.admin import admin_home_keyboard, strategy_keyboard, users_keyboard
+from app.keyboards.admin import admin_home_keyboard, strategy_keyboard, users_keyboard, user_subscription_keyboard
 from app.services.trade_tracker import format_signal_message, run_market_scan
 from app.states.admin import AdminStates
 from app.utils.backtest_ui import min_hours_for_max_trades
@@ -97,22 +99,75 @@ async def admin_users(callback: CallbackQuery, session: AsyncSession) -> None:
     page = int(callback.data.rsplit(":", maxsplit=1)[-1])
     total = await count_users(session)
     users = await list_users(session, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
-    lines = [f"<b>👥 Пользователи ({total})</b>\n"]
+    lines = [f"<b>👥 Пользователи ({total})</b>\n<i>Нажмите на пользователя для управления подпиской</i>\n"]
     for u in users:
         name = u.username or u.tg_id
         notify = "🔔" if u.notify_signals else "🔕"
-        liq = ""
-        if u.notify_liq_longs:
-            liq += " L"
-        if u.notify_liq_shorts:
-            liq += " S"
-        if u.notify_funding:
-            liq += " F"
-        lines.append(f"{notify}{liq} {name} (<code>{u.tg_id}</code>)")
+        sub = "💎" if is_subscription_active(u) else "—"
+        lines.append(f"{sub} {notify} {name} (<code>{u.tg_id}</code>)")
     await callback.message.answer(
         "\n".join(lines) if users else "Пользователей нет.",
-        reply_markup=users_keyboard(page, total, PAGE_SIZE),
+        reply_markup=users_keyboard(page, total, users=users, page_size=PAGE_SIZE),
     )
+
+
+@router.callback_query(F.data.regexp(r"^admin:user:\d+$"))
+async def admin_user_detail(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if callback.data is None or not isinstance(callback.message, Message):
+        return
+    user_id = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    user = await get_user_by_id(session, user_id)
+    if user is None:
+        await callback.message.answer("Пользователь не найден.", reply_markup=admin_home_keyboard())
+        return
+    until = user.subscription_until.strftime("%d.%m.%Y %H:%M UTC") if user.subscription_until else "—"
+    active = is_subscription_active(user)
+    await callback.message.answer(
+        f"<b>👤 Пользователь</b>\n\n"
+        f"ID: <code>{user.tg_id}</code>\n"
+        f"Username: @{user.username or '—'}\n"
+        f"Подписка: <b>{'активна ✅' if active else 'нет ❌'}</b>\n"
+        f"До: <b>{until}</b>\n"
+        f"Реф. код: <code>{user.referral_code or '—'}</code>",
+        reply_markup=user_subscription_keyboard(user.id),
+    )
+
+
+@router.callback_query(F.data.regexp(r"^admin:sub:\d+:(7|30|90|revoke)$"))
+async def admin_user_subscription(callback: CallbackQuery, session: AsyncSession, bot: Bot) -> None:
+    if callback.data is None:
+        return
+    _, _, uid_str, action = callback.data.split(":", maxsplit=3)
+    user = await get_user_by_id(session, int(uid_str))
+    if user is None:
+        await callback.answer("Не найден", show_alert=True)
+        return
+
+    if action == "revoke":
+        await revoke_subscription(session, user)
+        await callback.answer("Подписка отозвана")
+        note = "❌ Подписка отозвана администратором."
+    else:
+        days = int(action)
+        user = await extend_subscription(session, user, days)
+        await callback.answer(f"+{days} дн.")
+        until = user.subscription_until.strftime("%d.%m.%Y %H:%M UTC") if user.subscription_until else "—"
+        note = f"✅ Админ выдал <b>+{days} дн.</b> подписки.\nАктивна до: <b>{until}</b>"
+
+    try:
+        await bot.send_message(user.tg_id, note)
+    except Exception:
+        pass
+
+    if isinstance(callback.message, Message):
+        until = user.subscription_until.strftime("%d.%m.%Y %H:%M UTC") if user.subscription_until else "—"
+        await callback.message.edit_text(
+            f"<b>👤 Пользователь</b>\n\n"
+            f"ID: <code>{user.tg_id}</code>\n"
+            f"Подписка до: <b>{until}</b>",
+            reply_markup=user_subscription_keyboard(user.id),
+        )
 
 
 @router.callback_query(F.data == "admin:strategy")

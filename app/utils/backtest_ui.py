@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+BACKTEST_PERIODS: dict[int, str] = {
+    30: "30 дней",
+    90: "90 дней",
+}
+
 BACKTEST_DAYS = 30
 
 BACKTEST_MAX_TRADES: dict[int, str] = {
@@ -18,9 +23,7 @@ MAX_CANDLES = 9000
 
 
 def period_label(days: int = BACKTEST_DAYS) -> str:
-    if days == 30:
-        return "30 дней"
-    return f"{days} дн."
+    return BACKTEST_PERIODS.get(days, f"{days} дн.")
 
 
 def trades_per_day_label(max_per_day: int) -> str:

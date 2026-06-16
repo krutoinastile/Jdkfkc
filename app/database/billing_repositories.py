@@ -48,6 +48,13 @@ def is_subscription_active(user: User, *, now: datetime | None = None) -> bool:
     return user.subscription_until > (now or _now())
 
 
+async def revoke_subscription(session: AsyncSession, user: User) -> User:
+    user.subscription_until = None
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
 async def extend_subscription(session: AsyncSession, user: User, days: int) -> User:
     now = _now()
     base = user.subscription_until if user.subscription_until and user.subscription_until > now else now

@@ -55,6 +55,8 @@ class Signal(Base):
     entry_price: Mapped[float] = mapped_column(Float, nullable=False)
     stop_loss: Mapped[float] = mapped_column(Float, nullable=False)
     initial_stop_loss: Mapped[float | None] = mapped_column(Float)
+    partial_tp_hit: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    partial_pnl_percent: Mapped[float | None] = mapped_column(Float)
     take_profit: Mapped[float] = mapped_column(Float, nullable=False)
     rsi: Mapped[float] = mapped_column(Float, nullable=False)
     ema_fast: Mapped[float] = mapped_column(Float, nullable=False)

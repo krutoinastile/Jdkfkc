@@ -17,6 +17,7 @@ from app.database.repositories import (
     get_strategy_settings,
     has_open_signal,
     list_open_signals,
+    mark_partial_take_profit,
 )
 from app.services.subscription import list_premium_notify_users, send_subscription_reminders
 from app.services.market_data import Candle, fetch_candles, fetch_current_price
@@ -25,6 +26,7 @@ from app.utils.telegram import send_signal_chart
 from app.services.strategy import analyze_candles
 from app.services.strategy_config import StrategyConfig
 from app.utils.leverage import get_leverage, spot_to_leveraged
+from app.utils.trade_pnl import combined_close_pnl, partial_tp_hit, partial_tp_price, spot_pnl_pct
 from app.utils.messages import format_signal_card, format_trade_closed
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,7 @@ TRAIL_ALERTS = {
     "breakeven": "🛡 <b>SL в безубыток</b> — сделка #{id} ({dir} @ {entry})",
     "lock_half_r": "🔒 <b>+0.5R зафиксировано</b> — SL подтянут · #{id}",
     "trail": "📈 <b>Trailing SL</b> активен · сделка #{id}",
+    "partial_tp": "🎯 <b>Частичный TP 50%</b> на +2R · сделка #{id} · +{pnl}%",
 }
 
 
@@ -105,24 +108,45 @@ async def check_open_trades(
         trail_event = await apply_trailing_stop(session, signal, price)
         if trail_event:
             await _notify_trailing(bot, session, signal, settings, trail_event)
+
+        if partial_tp_hit(signal, price):
+            pt = partial_tp_price(signal)
+            lev = get_leverage(signal)
+            spot = spot_pnl_pct(signal, pt)
+            half_margin = spot_to_leveraged(spot, lev) * 0.5
+            await mark_partial_take_profit(session, signal, half_margin)
+            await _notify_trailing(
+                bot, session, signal, settings, "partial_tp", extra={"pnl": f"{half_margin:+.1f}"}
+            )
+
         lev = get_leverage(signal)
+        remaining = 0.5 if signal.partial_tp_hit else 1.0
+
         if signal.direction == "long":
             if price >= signal.take_profit:
                 spot = (signal.take_profit - signal.entry_price) / signal.entry_price * 100
-                await close_signal(session, signal, status=TradeStatus.WIN.value, exit_price=price, pnl_percent=spot_to_leveraged(spot, lev))
+                margin = spot_to_leveraged(spot, lev) * remaining
+                pnl = combined_close_pnl(signal, margin)
+                await close_signal(session, signal, status=TradeStatus.WIN.value, exit_price=price, pnl_percent=pnl)
                 closed.append(signal)
             elif price <= signal.stop_loss:
                 spot = (signal.stop_loss - signal.entry_price) / signal.entry_price * 100
-                await close_signal(session, signal, status=TradeStatus.LOSS.value, exit_price=price, pnl_percent=spot_to_leveraged(spot, lev))
+                margin = spot_to_leveraged(spot, lev) * remaining
+                pnl = combined_close_pnl(signal, margin)
+                await close_signal(session, signal, status=TradeStatus.LOSS.value, exit_price=price, pnl_percent=pnl)
                 closed.append(signal)
         else:
             if price <= signal.take_profit:
                 spot = (signal.entry_price - signal.take_profit) / signal.entry_price * 100
-                await close_signal(session, signal, status=TradeStatus.WIN.value, exit_price=price, pnl_percent=spot_to_leveraged(spot, lev))
+                margin = spot_to_leveraged(spot, lev) * remaining
+                pnl = combined_close_pnl(signal, margin)
+                await close_signal(session, signal, status=TradeStatus.WIN.value, exit_price=price, pnl_percent=pnl)
                 closed.append(signal)
             elif price >= signal.stop_loss:
                 spot = (signal.entry_price - signal.stop_loss) / signal.entry_price * 100
-                await close_signal(session, signal, status=TradeStatus.LOSS.value, exit_price=price, pnl_percent=spot_to_leveraged(spot, lev))
+                margin = spot_to_leveraged(spot, lev) * remaining
+                pnl = combined_close_pnl(signal, margin)
+                await close_signal(session, signal, status=TradeStatus.LOSS.value, exit_price=price, pnl_percent=pnl)
                 closed.append(signal)
 
     await expire_old_signals(session, current_price=price)
@@ -135,15 +159,19 @@ async def _notify_trailing(
     signal: Signal,
     settings: Settings,
     event: str,
+    *,
+    extra: dict | None = None,
 ) -> None:
     template = TRAIL_ALERTS.get(event)
     if not template:
         return
-    text = template.format(
-        id=signal.id,
-        dir=signal.direction.upper(),
-        entry=signal.entry_price,
-    )
+    fmt = {
+        "id": signal.id,
+        "dir": signal.direction.upper(),
+        "entry": signal.entry_price,
+        **(extra or {}),
+    }
+    text = template.format(**fmt)
     recipient_ids = set(settings.parsed_admin_ids)
     if settings.notify_on_signal:
         recipient_ids.update(user.tg_id for user in await list_premium_notify_users(session, settings))
