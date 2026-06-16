@@ -521,7 +521,7 @@ def format_backtest_intro(timeframe: str, *, leverage: int = 20) -> str:
         f"Ставка: <b>10% банка</b> на сделку\n"
         f"Правила: late trailing · partial TP опционально · expiry 72ч\n\n"
         f"<i>Выберите период, затем лимит сделок в день.\n"
-        f"В отчёте — кривая капитала и Buy & Hold.</i>"
+        f"В отчёте — кривая капитала.</i>"
         f"{footer()}"
     )
 
@@ -571,13 +571,6 @@ def format_backtest_result(
 
     profit = result.final_capital - result.simulated_capital
     profit_emoji = "📈" if profit >= 0 else "📉"
-    bh_emoji = "📈" if result.buy_hold_pct >= 0 else "📉"
-    bh_note = (
-        f"{section(f'{bh_emoji} Buy & Hold BTC')}\n"
-        f"{kv('Движение', pnl_colored(result.buy_hold_pct))}\n"
-        f"{kv('$1000 →', f'<b>{money(result.buy_hold_final)}</b>')}\n"
-        f"{kv('Стратегия vs B&H', pnl_colored(result.total_pnl_pct - result.buy_hold_pct))}\n"
-    )
 
     return (
         f"{header('🔬 Бэктест', f'{label} · {timeframe} · {leverage}x · 10%')}\n"
@@ -599,7 +592,6 @@ def format_backtest_result(
         f"{section(f'{profit_emoji} Капитал $1000')}\n"
         f"{kv('Итого', f'<b>{money(result.final_capital)}</b>')}\n"
         f"{kv('Прибыль', f'<b>{money(profit)}</b> ({pnl_colored(profit / result.simulated_capital * 100)})')}\n"
-        f"{bh_note}"
         f"<i>Расчёт: 10% депозита · {leverage}x · trailing/partial/expiry как в live.</i>"
         f"{history_note}"
         f"{footer()}"
