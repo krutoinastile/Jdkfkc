@@ -519,7 +519,7 @@ def format_backtest_intro(timeframe: str, *, leverage: int = 20) -> str:
         f"{'✅' if timeframe == '1h' else '⚠️ стратегия оптимизирована под 1h'}\n"
         f"Плечо: <b>{leverage}x</b> · Капитал: <b>$1,000</b>\n"
         f"Ставка: <b>10% банка</b> на сделку\n"
-        f"Правила: trailing SL · partial TP 50% · expiry 72ч\n\n"
+        f"Правила: late trailing · partial TP опционально · expiry 72ч\n\n"
         f"<i>Выберите период, затем лимит сделок в день.\n"
         f"В отчёте — кривая капитала и Buy & Hold.</i>"
         f"{footer()}"

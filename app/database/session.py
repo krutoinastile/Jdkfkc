@@ -34,6 +34,7 @@ STRATEGY_MIGRATIONS = (
     ("min_adx", "FLOAT DEFAULT 18"),
     ("trend_separation_pct", "FLOAT DEFAULT 0.002"),
     ("pullback_atr_mult", "FLOAT DEFAULT 0.55"),
+    ("partial_tp_enabled", "BOOLEAN DEFAULT 0"),
 )
 
 
@@ -87,16 +88,17 @@ async def init_database(engine: AsyncEngine) -> None:
                 "UPDATE strategy_settings SET "
                 "timeframe = '1h', "
                 "higher_tf = '4h', "
-                "atr_sl_mult = 1.5, "
-                "atr_tp_mult = 4.0, "
+                "atr_sl_mult = 1.8, "
+                "atr_tp_mult = 5.0, "
                 "use_volume_filter = 1, "
                 "htf_strict = 1, "
-                "min_adx = 16, "
+                "min_adx = 18, "
                 "trend_separation_pct = 0.002, "
                 "pullback_atr_mult = 0.55, "
-                "min_signal_strength = 55, "
-                "max_signals_per_day = 2, "
-                "min_hours_between_signals = 12, "
+                "min_signal_strength = 62, "
+                "max_signals_per_day = 1, "
+                "min_hours_between_signals = 24, "
+                "partial_tp_enabled = 0, "
                 "rsi_long_max = 68, "
                 "rsi_short_min = 32 "
                 "WHERE id = 1"

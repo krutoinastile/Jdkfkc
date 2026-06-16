@@ -70,47 +70,7 @@ def _combined_pnl(partial_hit: bool, partial_pnl: float | None, margin_pnl: floa
     return round(margin_pnl, 2)
 
 
-def _better_sl(direction: str, candidate: float, current_sl: float) -> bool:
-    if direction == "long":
-        return candidate > current_sl
-    return candidate < current_sl
-
-
-def _apply_trailing_sl(
-    direction: str,
-    entry: float,
-    sl: float,
-    initial_sl: float,
-    atr: float,
-    price: float,
-) -> float:
-    risk = abs(entry - initial_sl)
-    if risk <= 0:
-        return sl
-
-    new_sl: float | None = None
-    if direction == "long":
-        profit = price - entry
-        if profit >= risk:
-            new_sl = entry
-        if profit >= 2 * risk:
-            new_sl = max(new_sl or entry, entry + 0.5 * risk)
-        if profit >= 3 * risk:
-            trail = price - atr
-            new_sl = max(new_sl or trail, trail)
-    else:
-        profit = entry - price
-        if profit >= risk:
-            new_sl = entry
-        if profit >= 2 * risk:
-            new_sl = min(new_sl or entry, entry - 0.5 * risk)
-        if profit >= 3 * risk:
-            trail = price + atr
-            new_sl = min(new_sl or trail, trail)
-
-    if new_sl is not None and _better_sl(direction, new_sl, sl):
-        return new_sl
-    return sl
+from app.services.trailing_sl import compute_trailing_stop
 
 
 def _partial_tp_price(direction: str, entry: float, risk: float) -> float:
@@ -164,10 +124,19 @@ def _process_open_position(pos: dict, candle: Candle, leverage: int) -> Backtest
     fav = candle.high if direction == "long" else candle.low
     adv = candle.low if direction == "long" else candle.high
 
-    sl = _apply_trailing_sl(direction, entry, sl, initial_sl, atr, fav)
+    sl_new, _ = compute_trailing_stop(
+        direction=direction,
+        entry=entry,
+        current_sl=sl,
+        initial_sl=initial_sl,
+        atr=atr,
+        price=fav,
+    )
+    if sl_new is not None:
+        sl = sl_new
     pos["sl"] = sl
 
-    if not pos.get("partial_tp_hit") and risk > 0:
+    if pos.get("partial_tp_enabled") and not pos.get("partial_tp_hit") and risk > 0:
         pt = _partial_tp_price(direction, entry, risk)
         hit = fav >= pt if direction == "long" else fav <= pt
         if hit:
@@ -187,7 +156,7 @@ def _process_open_position(pos: dict, candle: Candle, leverage: int) -> Backtest
     return None
 
 
-def _open_from_signal(signal: TradeSignal, *, open_time: int) -> dict:
+def _open_from_signal(signal: TradeSignal, *, open_time: int, partial_tp_enabled: bool) -> dict:
     return {
         "direction": signal.direction,
         "entry": signal.entry_price,
@@ -199,6 +168,7 @@ def _open_from_signal(signal: TradeSignal, *, open_time: int) -> dict:
         "atr": signal.atr_value,
         "partial_tp_hit": False,
         "partial_pnl_percent": None,
+        "partial_tp_enabled": partial_tp_enabled,
     }
 
 
@@ -273,7 +243,9 @@ def run_backtest(
             htf = _htf_slice(htf_candles, candle.open_time)
             signal = analyze(window, cfg, htf)
             if signal:
-                open_pos = _open_from_signal(signal, open_time=candle.open_time)
+                open_pos = _open_from_signal(
+                    signal, open_time=candle.open_time, partial_tp_enabled=cfg.partial_tp_enabled,
+                )
                 last_open_time = candle.open_time
                 signals_today += 1
 

@@ -104,12 +104,15 @@ async def check_open_trades(
     price = await fetch_current_price(settings.symbol)
     closed: list[Signal] = []
 
+    db_cfg = await get_strategy_settings(session)
+    partial_tp_on = db_cfg.partial_tp_enabled
+
     for signal in await list_open_signals(session):
         trail_event = await apply_trailing_stop(session, signal, price)
         if trail_event:
             await _notify_trailing(bot, session, signal, settings, trail_event)
 
-        if partial_tp_hit(signal, price):
+        if partial_tp_on and partial_tp_hit(signal, price):
             pt = partial_tp_price(signal)
             lev = get_leverage(signal)
             spot = spot_pnl_pct(signal, pt)

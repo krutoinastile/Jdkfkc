@@ -35,9 +35,9 @@ PAGE_SIZE = 10
 
 def strategy_text(cfg) -> str:
     return (
-        "<b>⚙️ Адаптивная стратегия</b>\n\n"
+        "<b>⚙️ BB Squeeze стратегия</b>\n\n"
         f"Таймфрейм: <b>{cfg.timeframe}</b> (рекомендуется 1h)\n"
-        f"Режимы: BB Squeeze · Swing · Mean Reversion (по ADX)\n"
+        f"Режим: <b>BB Squeeze</b> · оптимизировано на 125d истории\n"
         f"SL: <b>{cfg.atr_sl_mult}×ATR</b> | TP: <b>{cfg.atr_tp_mult}×ATR</b>\n"
         f"Min ADX: <b>{cfg.min_adx}</b> · Сила: <b>{cfg.min_signal_strength}/100</b>\n"
         f"Плечо: <b>{cfg.leverage}x</b>\n"
@@ -45,8 +45,9 @@ def strategy_text(cfg) -> str:
         f"Vol {'✅' if cfg.use_volume_filter else '❌'} · "
         f"HTF {'✅' if cfg.use_higher_tf else '❌'}"
         f"{' · strict' if cfg.htf_strict else ''}\n"
+        f"Partial TP: {'✅' if cfg.partial_tp_enabled else '❌'}\n"
         f"Лимит: <b>{cfg.max_signals_per_day}</b> сигн/день · пауза <b>{cfg.min_hours_between_signals:.0f}ч</b>\n\n"
-        f"🛡 Trailing SL: breakeven +1R · lock +0.5R +2R · trail +3R\n"
+        f"🛡 Trailing: lock +0.5R @+2R · trail @+3R (без BE +1R)\n"
         f"🔄 Автоперезапуск: включён (supervisor)\n"
         f"Автоскан: {'✅' if cfg.scanning_enabled else '❌'}\n\n"
         f"<b>Ликвидации</b>\n"
@@ -195,7 +196,7 @@ async def toggle_scan(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
 
 
-@router.callback_query(F.data.regexp(r"^admin:strategy:toggle:(macd|vol|htf|htfstrict|liq|funding)$"))
+@router.callback_query(F.data.regexp(r"^admin:strategy:toggle:(macd|vol|htf|htfstrict|partial|liq|funding)$"))
 async def toggle_filter(callback: CallbackQuery, session: AsyncSession) -> None:
     if callback.data is None:
         return
@@ -205,6 +206,7 @@ async def toggle_filter(callback: CallbackQuery, session: AsyncSession) -> None:
         "vol": "use_volume_filter",
         "htf": "use_higher_tf",
         "htfstrict": "htf_strict",
+        "partial": "partial_tp_enabled",
         "liq": "liquidations_enabled",
         "funding": "funding_alerts_enabled",
     }

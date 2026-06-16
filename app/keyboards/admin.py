@@ -30,12 +30,13 @@ def strategy_keyboard(cfg: StrategySettings) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="SL x1.5", callback_data="admin:strategy:sl:1.5"),
+                InlineKeyboardButton(text="SL x1.8", callback_data="admin:strategy:sl:1.8"),
                 InlineKeyboardButton(text="SL x2.0", callback_data="admin:strategy:sl:2.0"),
             ],
             [
-                InlineKeyboardButton(text="TP x2.5", callback_data="admin:strategy:tp:2.5"),
-                InlineKeyboardButton(text="TP x3.0", callback_data="admin:strategy:tp:3.0"),
                 InlineKeyboardButton(text="TP x4.0", callback_data="admin:strategy:tp:4.0"),
+                InlineKeyboardButton(text="TP x5.0", callback_data="admin:strategy:tp:5.0"),
+                InlineKeyboardButton(text="TP x6.0", callback_data="admin:strategy:tp:6.0"),
             ],
             [
                 InlineKeyboardButton(text=_toggle("MACD", cfg.use_macd_filter), callback_data="admin:strategy:toggle:macd"),
@@ -44,6 +45,9 @@ def strategy_keyboard(cfg: StrategySettings) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text=_toggle("HTF 4H", cfg.use_higher_tf), callback_data="admin:strategy:toggle:htf"),
                 InlineKeyboardButton(text=_toggle("HTF strict", cfg.htf_strict), callback_data="admin:strategy:toggle:htfstrict"),
+            ],
+            [
+                InlineKeyboardButton(text=_toggle("Partial TP", cfg.partial_tp_enabled), callback_data="admin:strategy:toggle:partial"),
             ],
             [
                 InlineKeyboardButton(text="ADX: 14", callback_data="admin:strategy:adx:14"),

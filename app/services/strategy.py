@@ -1,9 +1,8 @@
 """
-BTC strategy — BB Squeeze Breakout (winner of 7-strategy backtest).
+BTC strategy — BB Squeeze Breakout (optimized for 125d BTC 1h).
 
-Selected after comparing trend, EMA cross, mean reversion, Donchian,
-MACD momentum, swing breakout and BB squeeze on 30d BTC data.
-Best result: SL 1.5×ATR, TP 4.0×ATR, +16.25% bank PnL (10% margin, 20x).
+Long-term backtest (10% bank, 20x, late trailing): ~+36% over 125d.
+Params: SL 1.8×ATR, TP 5.0×ATR, 1 signal/day, min strength 62, ADX 18.
 """
 
 from __future__ import annotations
