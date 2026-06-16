@@ -1,0 +1,378 @@
+"""Admin panel handlers."""
+
+from aiogram import Bot, F, Router
+from aiogram.filters import Command, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import Settings
+from app.database.billing_repositories import extend_subscription, is_subscription_active, revoke_subscription
+from app.database.repositories import (
+    count_users,
+    get_statistics,
+    get_strategy_settings,
+    get_user_by_id,
+    list_open_signals,
+    list_users,
+    update_strategy_settings,
+)
+from app.filters.admin import AdminFilter
+from app.handlers.admin_billing import router as admin_billing_router
+from app.keyboards.admin import admin_home_keyboard, strategy_keyboard, users_keyboard, user_subscription_keyboard
+from app.services.trade_tracker import format_signal_message, run_market_scan
+from app.states.admin import AdminStates
+from app.utils.backtest_ui import min_hours_for_max_trades
+
+router = Router(name="admin")
+router.message.filter(AdminFilter())
+router.callback_query.filter(AdminFilter())
+
+router.include_router(admin_billing_router)
+
+PAGE_SIZE = 10
+
+
+def strategy_text(cfg) -> str:
+    return (
+        "<b>⚙️ Адаптивная стратегия</b>\n\n"
+        f"Таймфрейм: <b>{cfg.timeframe}</b> (рекомендуется 1h)\n"
+        f"Режимы: BB Squeeze · Swing · Mean Reversion (по ADX)\n"
+        f"SL: <b>{cfg.atr_sl_mult}×ATR</b> | TP: <b>{cfg.atr_tp_mult}×ATR</b>\n"
+        f"Min ADX: <b>{cfg.min_adx}</b> · Сила: <b>{cfg.min_signal_strength}/100</b>\n"
+        f"Плечо: <b>{cfg.leverage}x</b>\n"
+        f"Лимит: <b>{cfg.max_signals_per_day}</b> сигн/день · пауза <b>{cfg.min_hours_between_signals:.0f}ч</b>\n\n"
+        f"🛡 Trailing SL: breakeven +1R · lock +0.5R +2R · trail +3R\n"
+        f"🔄 Автоперезапуск: включён (supervisor)\n"
+        f"Автоскан: {'✅' if cfg.scanning_enabled else '❌'}\n\n"
+        f"<b>Ликвидации</b>\n"
+        f"Мониторинг: {'✅' if cfg.liquidations_enabled else '❌'}\n"
+        f"Мин. сумма: <b>${cfg.min_liquidation_usd:,.0f}</b>\n\n"
+        f"<b>Funding Rate</b>\n"
+        f"Алерты: {'✅' if cfg.funding_alerts_enabled else '❌'}\n"
+        f"Порог: <b>{cfg.min_funding_rate_pct:.2f}%</b>"
+    )
+
+
+@router.message(Command("admin"))
+async def admin_cmd(message: Message) -> None:
+    await message.answer(
+        "🛠 <b>Админ-панель</b>\n\n"
+        "<i>💎 Подписка — цена, Crypto Pay, скидки, рефералы, розыгрыш</i>",
+        reply_markup=admin_home_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "admin:home")
+async def admin_home(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if isinstance(callback.message, Message):
+        await callback.message.answer(
+            "🛠 <b>Админ-панель</b>\n\n"
+            "<i>💎 Подписка — цена, Crypto Pay, скидки, рефералы, розыгрыш</i>",
+            reply_markup=admin_home_keyboard(),
+        )
+
+
+@router.callback_query(F.data == "admin:stats")
+async def admin_stats(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if not isinstance(callback.message, Message):
+        return
+    stats = await get_statistics(session)
+    users = await count_users(session)
+    await callback.message.answer(
+        "<b>📊 Статистика</b>\n\n"
+        f"Пользователей: <b>{users}</b>\n"
+        f"Всего сигналов: <b>{stats['total']}</b>\n"
+        f"✅ Успешных: <b>{stats['wins']}</b>\n"
+        f"❌ Убыточных: <b>{stats['losses']}</b>\n"
+        f"🔄 Открытых: <b>{stats['open']}</b>\n"
+        f"Win Rate: <b>{stats['win_rate']}%</b>\n"
+        f"Средний P&L: <b>{stats['avg_pnl']:+.2f}%</b>",
+        reply_markup=admin_home_keyboard(),
+    )
+
+
+@router.callback_query(F.data.regexp(r"^admin:users:\d+$"))
+async def admin_users(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if callback.data is None or not isinstance(callback.message, Message):
+        return
+    page = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    total = await count_users(session)
+    users = await list_users(session, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+    lines = [f"<b>👥 Пользователи ({total})</b>\n<i>Нажмите на пользователя для управления подпиской</i>\n"]
+    for u in users:
+        name = u.username or u.tg_id
+        notify = "🔔" if u.notify_signals else "🔕"
+        sub = "💎" if is_subscription_active(u) else "—"
+        lines.append(f"{sub} {notify} {name} (<code>{u.tg_id}</code>)")
+    await callback.message.answer(
+        "\n".join(lines) if users else "Пользователей нет.",
+        reply_markup=users_keyboard(page, total, users=users, page_size=PAGE_SIZE),
+    )
+
+
+@router.callback_query(F.data.regexp(r"^admin:user:\d+$"))
+async def admin_user_detail(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if callback.data is None or not isinstance(callback.message, Message):
+        return
+    user_id = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    user = await get_user_by_id(session, user_id)
+    if user is None:
+        await callback.message.answer("Пользователь не найден.", reply_markup=admin_home_keyboard())
+        return
+    until = user.subscription_until.strftime("%d.%m.%Y %H:%M UTC") if user.subscription_until else "—"
+    active = is_subscription_active(user)
+    await callback.message.answer(
+        f"<b>👤 Пользователь</b>\n\n"
+        f"ID: <code>{user.tg_id}</code>\n"
+        f"Username: @{user.username or '—'}\n"
+        f"Подписка: <b>{'активна ✅' if active else 'нет ❌'}</b>\n"
+        f"До: <b>{until}</b>\n"
+        f"Реф. код: <code>{user.referral_code or '—'}</code>",
+        reply_markup=user_subscription_keyboard(user.id),
+    )
+
+
+@router.callback_query(F.data.regexp(r"^admin:sub:\d+:(7|30|90|revoke)$"))
+async def admin_user_subscription(callback: CallbackQuery, session: AsyncSession, bot: Bot) -> None:
+    if callback.data is None:
+        return
+    _, _, uid_str, action = callback.data.split(":", maxsplit=3)
+    user = await get_user_by_id(session, int(uid_str))
+    if user is None:
+        await callback.answer("Не найден", show_alert=True)
+        return
+
+    if action == "revoke":
+        await revoke_subscription(session, user)
+        await callback.answer("Подписка отозвана")
+        note = "❌ Подписка отозвана администратором."
+    else:
+        days = int(action)
+        user = await extend_subscription(session, user, days)
+        await callback.answer(f"+{days} дн.")
+        until = user.subscription_until.strftime("%d.%m.%Y %H:%M UTC") if user.subscription_until else "—"
+        note = f"✅ Админ выдал <b>+{days} дн.</b> подписки.\nАктивна до: <b>{until}</b>"
+
+    try:
+        await bot.send_message(user.tg_id, note)
+    except Exception:
+        pass
+
+    if isinstance(callback.message, Message):
+        until = user.subscription_until.strftime("%d.%m.%Y %H:%M UTC") if user.subscription_until else "—"
+        await callback.message.edit_text(
+            f"<b>👤 Пользователь</b>\n\n"
+            f"ID: <code>{user.tg_id}</code>\n"
+            f"Подписка до: <b>{until}</b>",
+            reply_markup=user_subscription_keyboard(user.id),
+        )
+
+
+@router.callback_query(F.data == "admin:strategy")
+async def admin_strategy(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if not isinstance(callback.message, Message):
+        return
+    cfg = await get_strategy_settings(session)
+    await callback.message.answer(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data == "admin:strategy:toggle_scan")
+async def toggle_scan(callback: CallbackQuery, session: AsyncSession) -> None:
+    cfg = await get_strategy_settings(session)
+    cfg = await update_strategy_settings(session, scanning_enabled=not cfg.scanning_enabled)
+    await callback.answer("Скан переключён")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data.regexp(r"^admin:strategy:toggle:(macd|vol|htf|liq|funding)$"))
+async def toggle_filter(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    key = callback.data.rsplit(":", maxsplit=1)[-1]
+    field_map = {
+        "macd": "use_macd_filter",
+        "vol": "use_volume_filter",
+        "htf": "use_higher_tf",
+        "liq": "liquidations_enabled",
+        "funding": "funding_alerts_enabled",
+    }
+    cfg = await get_strategy_settings(session)
+    field = field_map[key]
+    cfg = await update_strategy_settings(session, **{field: not getattr(cfg, field)})
+    await callback.answer("Обновлено")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data.regexp(r"^admin:strategy:tf:(15m|1h|4h)$"))
+async def set_tf(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    tf = callback.data.rsplit(":", maxsplit=1)[-1]
+    cfg = await get_strategy_settings(session)
+    updates: dict[str, object] = {"timeframe": tf}
+    if tf == "15m":
+        updates["higher_tf"] = "1h"
+    elif tf == "1h" and cfg.higher_tf == "15m":
+        updates["higher_tf"] = "4h"
+    cfg = await update_strategy_settings(session, **updates)
+    note = f"TF: {tf}"
+    if tf != "1h":
+        note += " ⚠️ стратегия оптимизирована под 1h"
+    await callback.answer(note, show_alert=tf != "1h")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data.regexp(r"^admin:strategy:sl:[\d.]+$"))
+async def set_sl(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    val = float(callback.data.rsplit(":", maxsplit=1)[-1])
+    cfg = await update_strategy_settings(session, atr_sl_mult=val)
+    await callback.answer(f"SL: {val}×ATR")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data.regexp(r"^admin:strategy:tp:[\d.]+$"))
+async def set_tp(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    val = float(callback.data.rsplit(":", maxsplit=1)[-1])
+    cfg = await update_strategy_settings(session, atr_tp_mult=val)
+    await callback.answer(f"TP: {val}×ATR")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data.regexp(r"^admin:strategy:liqmin:\d+$"))
+async def set_liq_min(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    val = float(callback.data.rsplit(":", maxsplit=1)[-1])
+    cfg = await update_strategy_settings(session, min_liquidation_usd=val)
+    await callback.answer(f"Мин. ликвидация: ${val:,.0f}")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data.regexp(r"^admin:strategy:str:\d+$"))
+async def set_strength(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    val = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    cfg = await update_strategy_settings(session, min_signal_strength=val)
+    await callback.answer(f"Мин. сила: {val}")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data.regexp(r"^admin:strategy:lev:\d+$"))
+async def set_leverage(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    val = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    cfg = await update_strategy_settings(session, leverage=val)
+    await callback.answer(f"Плечо: {val}x")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data.regexp(r"^admin:strategy:daymax:\d+$"))
+async def set_daymax(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    val = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    cfg = await update_strategy_settings(
+        session,
+        max_signals_per_day=val,
+        min_hours_between_signals=min_hours_for_max_trades(val),
+    )
+    await callback.answer(f"Лимит: {val}/день")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data.regexp(r"^admin:strategy:cooldown:\d+$"))
+async def set_cooldown(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    val = float(callback.data.rsplit(":", maxsplit=1)[-1])
+    cfg = await update_strategy_settings(session, min_hours_between_signals=val)
+    await callback.answer(f"Пауза: {val:.0f}ч")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data.regexp(r"^admin:strategy:fund:[\d.]+$"))
+async def set_funding_threshold(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    val = float(callback.data.rsplit(":", maxsplit=1)[-1])
+    cfg = await update_strategy_settings(session, min_funding_rate_pct=val)
+    await callback.answer(f"Funding порог: {val}%")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data == "admin:scan")
+async def admin_scan(callback: CallbackQuery, session: AsyncSession, settings: Settings, bot: Bot) -> None:
+    await callback.answer("Сканирую...")
+    if not isinstance(callback.message, Message):
+        return
+    signal = await run_market_scan(session, settings, bot, force=True)
+    if signal:
+        await callback.message.answer(format_signal_message(signal, is_new=True))
+    else:
+        await callback.message.answer("Сигнал не найден. Условия стратегии не выполнены.", reply_markup=admin_home_keyboard())
+
+
+@router.callback_query(F.data == "admin:open")
+async def admin_open(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if not isinstance(callback.message, Message):
+        return
+    open_sigs = await list_open_signals(session)
+    if not open_sigs:
+        await callback.message.answer("Открытых сделок нет.", reply_markup=admin_home_keyboard())
+        return
+    for s in open_sigs:
+        await callback.message.answer(format_signal_message(s))
+
+
+@router.callback_query(F.data == "admin:broadcast")
+async def admin_broadcast_start(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await state.set_state(AdminStates.broadcast)
+    if isinstance(callback.message, Message):
+        await callback.message.answer("Отправьте текст рассылки всем пользователям.\n/cancel для отмены.")
+
+
+@router.message(Command("cancel"), StateFilter(AdminStates))
+async def admin_cancel(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Отменено.", reply_markup=admin_home_keyboard())
+
+
+@router.message(StateFilter(AdminStates.broadcast))
+async def admin_broadcast_send(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
+    if message.text is None:
+        return
+    users = await list_users(session, limit=1000)
+    sent = 0
+    for user in users:
+        try:
+            await bot.send_message(chat_id=user.tg_id, text=message.text)
+            sent += 1
+        except Exception:
+            pass
+    await state.clear()
+    await message.answer(f"Рассылка отправлена: {sent}/{len(users)}", reply_markup=admin_home_keyboard())

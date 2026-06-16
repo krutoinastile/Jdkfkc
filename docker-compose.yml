@@ -1,0 +1,9 @@
+services:
+  tradingbot:
+    build: .
+    container_name: btc-trading-bot
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
