@@ -14,7 +14,6 @@ from aiogram.types import ErrorEvent
 from app.config import Settings
 from app.database.repositories import ensure_admin_users
 from app.database.session import create_engine, create_session_pool, init_database
-from app.handlers.admin_billing import router as admin_billing_router
 from app.handlers.admin import router as admin_router
 from app.handlers.subscription import router as subscription_router
 from app.handlers.user import router as user_router

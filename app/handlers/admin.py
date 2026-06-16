@@ -18,6 +18,7 @@ from app.database.repositories import (
     update_strategy_settings,
 )
 from app.filters.admin import AdminFilter
+from app.handlers.admin_billing import router as admin_billing_router
 from app.keyboards.admin import admin_home_keyboard, strategy_keyboard, users_keyboard, user_subscription_keyboard
 from app.services.trade_tracker import format_signal_message, run_market_scan
 from app.states.admin import AdminStates
@@ -26,6 +27,8 @@ from app.utils.backtest_ui import min_hours_for_max_trades
 router = Router(name="admin")
 router.message.filter(AdminFilter())
 router.callback_query.filter(AdminFilter())
+
+router.include_router(admin_billing_router)
 
 PAGE_SIZE = 10
 
