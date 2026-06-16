@@ -41,6 +41,10 @@ def strategy_text(cfg) -> str:
         f"SL: <b>{cfg.atr_sl_mult}×ATR</b> | TP: <b>{cfg.atr_tp_mult}×ATR</b>\n"
         f"Min ADX: <b>{cfg.min_adx}</b> · Сила: <b>{cfg.min_signal_strength}/100</b>\n"
         f"Плечо: <b>{cfg.leverage}x</b>\n"
+        f"Фильтры: MACD {'✅' if cfg.use_macd_filter else '❌'} · "
+        f"Vol {'✅' if cfg.use_volume_filter else '❌'} · "
+        f"HTF {'✅' if cfg.use_higher_tf else '❌'}"
+        f"{' · strict' if cfg.htf_strict else ''}\n"
         f"Лимит: <b>{cfg.max_signals_per_day}</b> сигн/день · пауза <b>{cfg.min_hours_between_signals:.0f}ч</b>\n\n"
         f"🛡 Trailing SL: breakeven +1R · lock +0.5R +2R · trail +3R\n"
         f"🔄 Автоперезапуск: включён (supervisor)\n"
@@ -191,7 +195,7 @@ async def toggle_scan(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
 
 
-@router.callback_query(F.data.regexp(r"^admin:strategy:toggle:(macd|vol|htf|liq|funding)$"))
+@router.callback_query(F.data.regexp(r"^admin:strategy:toggle:(macd|vol|htf|htfstrict|liq|funding)$"))
 async def toggle_filter(callback: CallbackQuery, session: AsyncSession) -> None:
     if callback.data is None:
         return
@@ -200,6 +204,7 @@ async def toggle_filter(callback: CallbackQuery, session: AsyncSession) -> None:
         "macd": "use_macd_filter",
         "vol": "use_volume_filter",
         "htf": "use_higher_tf",
+        "htfstrict": "htf_strict",
         "liq": "liquidations_enabled",
         "funding": "funding_alerts_enabled",
     }
@@ -223,10 +228,14 @@ async def set_tf(callback: CallbackQuery, session: AsyncSession) -> None:
     elif tf == "1h" and cfg.higher_tf == "15m":
         updates["higher_tf"] = "4h"
     cfg = await update_strategy_settings(session, **updates)
-    note = f"TF: {tf}"
-    if tf != "1h":
-        note += " ⚠️ стратегия оптимизирована под 1h"
-    await callback.answer(note, show_alert=tf != "1h")
+    if tf == "15m":
+        note = "⚠️ 15m не рекомендуется — стратегия оптимизирована под 1h"
+        await callback.answer(note, show_alert=True)
+    else:
+        note = f"TF: {tf}"
+        if tf != "1h":
+            note += " ⚠️ рекомендуется 1h"
+        await callback.answer(note, show_alert=tf != "1h")
     if isinstance(callback.message, Message):
         await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
 
@@ -271,6 +280,17 @@ async def set_strength(callback: CallbackQuery, session: AsyncSession) -> None:
     val = int(callback.data.rsplit(":", maxsplit=1)[-1])
     cfg = await update_strategy_settings(session, min_signal_strength=val)
     await callback.answer(f"Мин. сила: {val}")
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
+
+
+@router.callback_query(F.data.regexp(r"^admin:strategy:adx:[\d.]+$"))
+async def set_min_adx(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.data is None:
+        return
+    val = float(callback.data.rsplit(":", maxsplit=1)[-1])
+    cfg = await update_strategy_settings(session, min_adx=val)
+    await callback.answer(f"Min ADX: {val}")
     if isinstance(callback.message, Message):
         await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
 

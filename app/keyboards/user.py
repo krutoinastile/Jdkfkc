@@ -144,16 +144,18 @@ def calculator_result_keyboard(days: int, amount: int) -> InlineKeyboardMarkup:
     )
 
 
-def stats_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="💰 Калькулятор", callback_data="menu:calculator"),
-                InlineKeyboardButton(text="🔬 Бэктест", callback_data="menu:backtest"),
-            ],
-            [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
-        ]
-    )
+def stats_keyboard(*, has_equity: bool = False) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if has_equity:
+        rows.append([InlineKeyboardButton(text="📈 Кривая капитала", callback_data="stats:equity")])
+    rows.extend([
+        [
+            InlineKeyboardButton(text="💰 Калькулятор", callback_data="menu:calculator"),
+            InlineKeyboardButton(text="🔬 Бэктест", callback_data="menu:backtest"),
+        ],
+        [InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home")],
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def settings_keyboard(user: User) -> InlineKeyboardMarkup:

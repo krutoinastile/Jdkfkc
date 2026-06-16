@@ -78,6 +78,7 @@ from app.utils.backtest_ui import (
     period_label,
     trades_per_day_label,
 )
+from app.utils.history import parse_history_callback
 
 router = Router(name="user")
 
@@ -370,7 +371,7 @@ async def menu_backtest(callback: CallbackQuery, session: AsyncSession, settings
         return
     cfg = await _cfg(session)
     await callback.message.answer(
-        format_backtest_intro(cfg.timeframe),
+        format_backtest_intro(cfg.timeframe, leverage=cfg.leverage),
         reply_markup=backtest_period_keyboard(),
     )
 
@@ -433,6 +434,7 @@ async def _run_backtest(
         days=days,
         bars=len(candles),
         max_trades_per_day=max_trades_per_day,
+        leverage=cfg.leverage,
     )
     await message.answer(text, reply_markup=backtest_result_keyboard())
 
@@ -538,7 +540,34 @@ async def menu_stats(callback: CallbackQuery, session: AsyncSession) -> None:
     if not isinstance(callback.message, Message):
         return
     stats = await get_statistics(session)
-    await callback.message.answer(format_stats(stats), reply_markup=stats_keyboard())
+    await callback.message.answer(format_stats(stats), reply_markup=stats_keyboard(has_equity=bool(stats.get("equity_curve"))))
+
+
+@router.callback_query(F.data == "stats:equity")
+async def stats_equity_chart(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if not isinstance(callback.message, Message):
+        return
+    stats = await get_statistics(session)
+    curve = stats.get("equity_curve") or []
+    if len(curve) < 2:
+        await callback.message.answer("Недостаточно закрытых сделок для графика.", reply_markup=back_keyboard())
+        return
+    from aiogram.types import BufferedInputFile
+
+    from app.services.chart import render_equity_curve
+
+    chart = await asyncio.to_thread(
+        render_equity_curve,
+        curve,
+        initial=1000.0,
+        title="Live Equity · 10% банка",
+    )
+    await callback.message.answer_photo(
+        BufferedInputFile(chart, filename="live-equity.png"),
+        caption="📈 Кривая капитала по закрытым сделкам (10% банка, реинвест)",
+        reply_markup=stats_keyboard(has_equity=True),
+    )
 
 
 @router.callback_query(F.data.regexp(r"^hist:(all|win|loss|open):\d+:\d+$"))
@@ -612,7 +641,10 @@ async def menu_notify_legacy(callback: CallbackQuery, session: AsyncSession) -> 
 async def stats_cmd(message: Message, session: AsyncSession, settings: Settings) -> None:
     admin = await is_admin(message.from_user.id, settings.parsed_admin_ids) if message.from_user else False
     stats = await get_statistics(session)
-    await message.answer(format_stats(stats), reply_markup=main_menu_keyboard(is_admin=admin))
+    await message.answer(
+        format_stats(stats),
+        reply_markup=stats_keyboard(has_equity=bool(stats.get("equity_curve"))),
+    )
 
 
 @router.message(Command("signal"))

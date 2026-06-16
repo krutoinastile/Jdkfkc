@@ -43,6 +43,12 @@ def strategy_keyboard(cfg: StrategySettings) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text=_toggle("HTF 4H", cfg.use_higher_tf), callback_data="admin:strategy:toggle:htf"),
+                InlineKeyboardButton(text=_toggle("HTF strict", cfg.htf_strict), callback_data="admin:strategy:toggle:htfstrict"),
+            ],
+            [
+                InlineKeyboardButton(text="ADX: 14", callback_data="admin:strategy:adx:14"),
+                InlineKeyboardButton(text="ADX: 16", callback_data="admin:strategy:adx:16"),
+                InlineKeyboardButton(text="ADX: 20", callback_data="admin:strategy:adx:20"),
             ],
             [
                 InlineKeyboardButton(text="Сила: 50", callback_data="admin:strategy:str:50"),

@@ -20,7 +20,6 @@ def _better_sl(signal: Signal, candidate: float) -> bool:
 
 
 async def apply_trailing_stop(session: AsyncSession, signal: Signal, price: float) -> str | None:
-    """Move SL to breakeven/trail. Returns event label if SL moved."""
     """Move SL to breakeven at +1R, lock +0.5R at +2R, trail by 1 ATR at +3R."""
     risk = initial_risk(signal)
     if risk <= 0:

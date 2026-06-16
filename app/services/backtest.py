@@ -1,4 +1,4 @@
-"""Historical strategy backtest on OHLCV data."""
+"""Historical strategy backtest on OHLCV data (aligned with live trade rules)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ from app.utils.leverage import DEFAULT_BANK_ALLOCATION_PCT, pnl_on_bank, spot_to
 from app.services.strategy_config import StrategyConfig
 
 Analyzer = Callable[[list[Candle], StrategyConfig, list[Candle] | None], TradeSignal | None]
+
+EXPIRE_HOURS = 72
 
 
 @dataclass
@@ -42,6 +44,8 @@ class BacktestResult:
     max_trades_per_day: int = 0
     avg_trades_per_day: float = 0.0
     equity_curve: list[float] | None = None
+    buy_hold_pct: float = 0.0
+    buy_hold_final: float = 0.0
 
 
 def _htf_slice(htf_candles: list[Candle] | None, up_to_time: int) -> list[Candle] | None:
@@ -50,29 +54,136 @@ def _htf_slice(htf_candles: list[Candle] | None, up_to_time: int) -> list[Candle
     return [c for c in htf_candles if c.open_time <= up_to_time]
 
 
-def _close_trade(
+def _margin_spot_pct(direction: str, entry: float, exit_price: float) -> float:
+    if direction == "long":
+        return (exit_price - entry) / entry * 100
+    return (entry - exit_price) / entry * 100
+
+
+def _margin_pnl(direction: str, entry: float, exit_price: float, leverage: int) -> float:
+    return spot_to_leveraged(_margin_spot_pct(direction, entry, exit_price), leverage)
+
+
+def _combined_pnl(partial_hit: bool, partial_pnl: float | None, margin_pnl: float) -> float:
+    if partial_hit and partial_pnl is not None:
+        return round(partial_pnl + margin_pnl * 0.5, 2)
+    return round(margin_pnl, 2)
+
+
+def _better_sl(direction: str, candidate: float, current_sl: float) -> bool:
+    if direction == "long":
+        return candidate > current_sl
+    return candidate < current_sl
+
+
+def _apply_trailing_sl(
     direction: str,
     entry: float,
     sl: float,
-    tp: float,
-    candle: Candle,
-    strength: int,
-    open_time: int,
-) -> BacktestTrade | None:
+    initial_sl: float,
+    atr: float,
+    price: float,
+) -> float:
+    risk = abs(entry - initial_sl)
+    if risk <= 0:
+        return sl
+
+    new_sl: float | None = None
     if direction == "long":
-        if candle.low <= sl:
-            pnl = (sl - entry) / entry * 100
-            return BacktestTrade(direction, entry, sl, pnl, TradeStatus.LOSS.value, strength, open_time)
-        if candle.high >= tp:
-            pnl = (tp - entry) / entry * 100
-            return BacktestTrade(direction, entry, tp, pnl, TradeStatus.WIN.value, strength, open_time)
+        profit = price - entry
+        if profit >= risk:
+            new_sl = entry
+        if profit >= 2 * risk:
+            new_sl = max(new_sl or entry, entry + 0.5 * risk)
+        if profit >= 3 * risk:
+            trail = price - atr
+            new_sl = max(new_sl or trail, trail)
     else:
-        if candle.high >= sl:
-            pnl = (entry - sl) / entry * 100
-            return BacktestTrade(direction, entry, sl, pnl, TradeStatus.LOSS.value, strength, open_time)
-        if candle.low <= tp:
-            pnl = (entry - tp) / entry * 100
-            return BacktestTrade(direction, entry, tp, pnl, TradeStatus.WIN.value, strength, open_time)
+        profit = entry - price
+        if profit >= risk:
+            new_sl = entry
+        if profit >= 2 * risk:
+            new_sl = min(new_sl or entry, entry - 0.5 * risk)
+        if profit >= 3 * risk:
+            trail = price + atr
+            new_sl = min(new_sl or trail, trail)
+
+    if new_sl is not None and _better_sl(direction, new_sl, sl):
+        return new_sl
+    return sl
+
+
+def _partial_tp_price(direction: str, entry: float, risk: float) -> float:
+    if direction == "long":
+        return entry + 2 * risk
+    return entry - 2 * risk
+
+
+def _close_from_position(
+    pos: dict,
+    exit_price: float,
+    leverage: int,
+    *,
+    status: str | None = None,
+) -> BacktestTrade:
+    direction = pos["direction"]
+    entry = pos["entry"]
+    partial_hit = pos.get("partial_tp_hit", False)
+    partial_pnl = pos.get("partial_pnl_percent")
+    remaining = 0.5 if partial_hit else 1.0
+    margin = _margin_pnl(direction, entry, exit_price, leverage) * remaining
+    pnl = _combined_pnl(partial_hit, partial_pnl, margin)
+    if status is None:
+        spot = _margin_spot_pct(direction, entry, exit_price)
+        status = TradeStatus.WIN.value if spot > 0 else TradeStatus.LOSS.value
+    return BacktestTrade(
+        direction,
+        entry,
+        exit_price,
+        pnl,
+        status,
+        pos["strength"],
+        pos["open_time"],
+    )
+
+
+def _process_open_position(pos: dict, candle: Candle, leverage: int) -> BacktestTrade | None:
+    direction = pos["direction"]
+    entry = pos["entry"]
+    sl = pos["sl"]
+    initial_sl = pos["initial_sl"]
+    tp = pos["tp"]
+    atr = pos["atr"]
+    open_time = pos["open_time"]
+    risk = abs(entry - initial_sl)
+
+    hours_open = (candle.open_time - open_time) / 3_600_000
+    if hours_open >= EXPIRE_HOURS:
+        return _close_from_position(pos, candle.close, leverage)
+
+    fav = candle.high if direction == "long" else candle.low
+    adv = candle.low if direction == "long" else candle.high
+
+    sl = _apply_trailing_sl(direction, entry, sl, initial_sl, atr, fav)
+    pos["sl"] = sl
+
+    if not pos.get("partial_tp_hit") and risk > 0:
+        pt = _partial_tp_price(direction, entry, risk)
+        hit = fav >= pt if direction == "long" else fav <= pt
+        if hit:
+            pos["partial_tp_hit"] = True
+            pos["partial_pnl_percent"] = _margin_pnl(direction, entry, pt, leverage) * 0.5
+
+    if direction == "long":
+        if adv <= sl:
+            return _close_from_position(pos, sl, leverage)
+        if fav >= tp:
+            return _close_from_position(pos, tp, leverage, status=TradeStatus.WIN.value)
+    else:
+        if adv >= sl:
+            return _close_from_position(pos, sl, leverage)
+        if fav <= tp:
+            return _close_from_position(pos, tp, leverage, status=TradeStatus.WIN.value)
     return None
 
 
@@ -81,9 +192,13 @@ def _open_from_signal(signal: TradeSignal, *, open_time: int) -> dict:
         "direction": signal.direction,
         "entry": signal.entry_price,
         "sl": signal.stop_loss,
+        "initial_sl": signal.stop_loss,
         "tp": signal.take_profit,
         "strength": signal.strength,
         "open_time": open_time,
+        "atr": signal.atr_value,
+        "partial_tp_hit": False,
+        "partial_pnl_percent": None,
     }
 
 
@@ -137,17 +252,8 @@ def run_backtest(
             signals_today = 0
 
         if open_pos:
-            closed = _close_trade(
-                open_pos["direction"],
-                open_pos["entry"],
-                open_pos["sl"],
-                open_pos["tp"],
-                candle,
-                open_pos["strength"],
-                open_pos["open_time"],
-            )
+            closed = _process_open_position(open_pos, candle, cfg.leverage)
             if closed:
-                closed.pnl_percent = spot_to_leveraged(closed.pnl_percent, cfg.leverage)
                 trades.append(closed)
                 bank_pnl = pnl_on_bank(closed.pnl_percent, DEFAULT_BANK_ALLOCATION_PCT)
                 capital *= 1 + bank_pnl / 100
@@ -171,6 +277,13 @@ def run_backtest(
                 last_open_time = candle.open_time
                 signals_today += 1
 
+    if open_pos and candles:
+        closed = _close_from_position(open_pos, candles[-1].close, cfg.leverage)
+        trades.append(closed)
+        bank_pnl = pnl_on_bank(closed.pnl_percent, DEFAULT_BANK_ALLOCATION_PCT)
+        capital *= 1 + bank_pnl / 100
+        equity_curve.append(round(capital, 2))
+
     wins = sum(1 for t in trades if t.status == TradeStatus.WIN.value)
     losses = len(trades) - wins
     margin_pnls = [t.pnl_percent for t in trades]
@@ -187,6 +300,11 @@ def run_backtest(
     span_days = max((candles[-1].open_time - candles[min_i].open_time) / 86_400_000, 1)
     avg_trades_per_day = len(trades) / span_days
 
+    start_price = candles[min_i].close
+    end_price = candles[-1].close
+    buy_hold_pct = (end_price - start_price) / start_price * 100 if start_price else 0.0
+    buy_hold_final = round(initial_capital * (1 + buy_hold_pct / 100), 2)
+
     return BacktestResult(
         trades=trades,
         wins=wins,
@@ -202,4 +320,6 @@ def run_backtest(
         max_trades_per_day=max_trades_per_day,
         avg_trades_per_day=round(avg_trades_per_day, 2),
         equity_curve=equity_curve,
+        buy_hold_pct=round(buy_hold_pct, 2),
+        buy_hold_final=buy_hold_final,
     )
