@@ -66,6 +66,7 @@ from app.utils.messages import (
 )
 from app.utils.billing_messages import format_subscription_paywall
 from app.utils.trade_pnl import format_live_trade
+from app.utils.long_task import show_progress
 from app.utils.telegram import answer_with_chart
 
 from app.utils.backtest_ui import (
@@ -248,29 +249,30 @@ async def menu_dashboard(callback: CallbackQuery, session: AsyncSession, setting
     if not isinstance(callback.message, Message):
         return
 
-    cfg, candles, snap, fear_greed, funding, derivatives = await _market_context(session, settings)
-    stats = await get_statistics(session)
-    open_signals = await list_open_signals(session)
-    open_trade_text = None
-    if open_signals:
-        price = await fetch_current_price(settings.symbol)
-        open_trade_text = format_live_trade(open_signals[0], price)
-    caption = format_dashboard(
-        snap,
-        stats,
-        has_open=bool(open_signals),
-        fear_greed=fear_greed,
-        funding=funding,
-        derivatives=derivatives,
-        open_trade_text=open_trade_text,
-    )
-    await answer_with_chart(
-        callback.message,
-        caption,
-        candles,
-        cfg,
-        reply_markup=refresh_keyboard("menu:dashboard"),
-    )
+    async with show_progress(callback.message, "⏳ Собираю дашборд..."):
+        cfg, candles, snap, fear_greed, funding, derivatives = await _market_context(session, settings)
+        stats = await get_statistics(session)
+        open_signals = await list_open_signals(session)
+        open_trade_text = None
+        if open_signals:
+            price = await fetch_current_price(settings.symbol)
+            open_trade_text = format_live_trade(open_signals[0], price)
+        caption = format_dashboard(
+            snap,
+            stats,
+            has_open=bool(open_signals),
+            fear_greed=fear_greed,
+            funding=funding,
+            derivatives=derivatives,
+            open_trade_text=open_trade_text,
+        )
+        await answer_with_chart(
+            callback.message,
+            caption,
+            candles,
+            cfg,
+            reply_markup=refresh_keyboard("menu:dashboard"),
+        )
 
 
 @router.callback_query(F.data == "menu:help")
@@ -411,48 +413,50 @@ async def _run_backtest(
     days = days if days in BACKTEST_PERIODS else BACKTEST_DAYS
     limit = candles_for_period(days, cfg.timeframe)
     htf_limit = htf_candles_for_period(days, cfg.higher_tf) if cfg.use_higher_tf else 0
+    label = period_label(days)
 
-    if cfg.use_higher_tf:
-        candles, htf_candles = await asyncio.gather(
-            fetch_candles(settings.symbol, cfg.timeframe, limit=limit),
-            fetch_candles(settings.symbol, cfg.higher_tf, limit=htf_limit),
+    async with show_progress(message, f"⏳ Бэктест <b>{label}</b> — загружаю свечи..."):
+        if cfg.use_higher_tf:
+            candles, htf_candles = await asyncio.gather(
+                fetch_candles(settings.symbol, cfg.timeframe, limit=limit),
+                fetch_candles(settings.symbol, cfg.higher_tf, limit=htf_limit),
+            )
+        else:
+            candles = await fetch_candles(settings.symbol, cfg.timeframe, limit=limit)
+            htf_candles = None
+
+        result = await asyncio.to_thread(
+            run_backtest,
+            candles,
+            cfg,
+            htf_candles=htf_candles,
+            initial_capital=1000.0,
         )
-    else:
-        candles = await fetch_candles(settings.symbol, cfg.timeframe, limit=limit)
-        htf_candles = None
-
-    result = await asyncio.to_thread(
-        run_backtest,
-        candles,
-        cfg,
-        htf_candles=htf_candles,
-        initial_capital=1000.0,
-    )
-    text = format_backtest_result(
-        result,
-        timeframe=cfg.timeframe,
-        days=days,
-        bars=len(candles),
-        max_trades_per_day=max_trades_per_day,
-        leverage=cfg.leverage,
-    )
-    await message.answer(text, reply_markup=backtest_result_keyboard())
-
-    if result.equity_curve and len(result.equity_curve) > 1:
-        from aiogram.types import BufferedInputFile
-
-        from app.services.chart import render_equity_curve
-
-        chart = await asyncio.to_thread(
-            render_equity_curve,
-            result.equity_curve,
-            initial=result.simulated_capital,
-            title=f"Equity · {period_label(days)} · {cfg.timeframe}",
+        text = format_backtest_result(
+            result,
+            timeframe=cfg.timeframe,
+            days=days,
+            bars=len(candles),
+            max_trades_per_day=max_trades_per_day,
+            leverage=cfg.leverage,
         )
-        await message.answer_photo(
-            BufferedInputFile(chart, filename="equity.png"),
-            caption="📈 Кривая капитала (10% банка, реинвест)",
-        )
+        await message.answer(text, reply_markup=backtest_result_keyboard())
+
+        if result.equity_curve and len(result.equity_curve) > 1:
+            from aiogram.types import BufferedInputFile
+
+            from app.services.chart import render_equity_curve
+
+            chart = await asyncio.to_thread(
+                render_equity_curve,
+                result.equity_curve,
+                initial=result.simulated_capital,
+                title=f"Equity · {label} · {cfg.timeframe}",
+            )
+            await message.answer_photo(
+                BufferedInputFile(chart, filename="equity.png"),
+                caption="📈 Кривая капитала (10% банка, реинвест)",
+            )
 
 
 @router.callback_query(F.data.regexp(r"^backtest:run:\d+:\d+$"))
@@ -490,29 +494,30 @@ async def menu_signal(callback: CallbackQuery, session: AsyncSession, settings: 
         )
         return
 
-    open_signals = await list_open_signals(session)
-    cfg, candles, snap, _, _, _ = await _market_context(session, settings)
-    current_price = await fetch_current_price(settings.symbol)
+    async with show_progress(callback.message, "⏳ Загружаю сигнал..."):
+        open_signals = await list_open_signals(session)
+        cfg, candles, snap, _, _, _ = await _market_context(session, settings)
+        current_price = await fetch_current_price(settings.symbol)
 
-    if open_signals:
-        signal = open_signals[0]
+        if open_signals:
+            signal = open_signals[0]
+            await answer_with_chart(
+                callback.message,
+                format_signal_message(signal, current_price=current_price),
+                candles,
+                cfg,
+                signal=signal,
+                reply_markup=refresh_keyboard("menu:signal"),
+            )
+            return
+
         await answer_with_chart(
             callback.message,
-            format_signal_message(signal, current_price=current_price),
+            format_no_signal(snap),
             candles,
             cfg,
-            signal=signal,
             reply_markup=refresh_keyboard("menu:signal"),
         )
-        return
-
-    await answer_with_chart(
-        callback.message,
-        format_no_signal(snap),
-        candles,
-        cfg,
-        reply_markup=refresh_keyboard("menu:signal"),
-    )
 
 
 @router.callback_query(F.data == "menu:market")
@@ -521,17 +526,18 @@ async def menu_market(callback: CallbackQuery, session: AsyncSession, settings: 
     if not isinstance(callback.message, Message):
         return
 
-    cfg, candles, snap, fear_greed, funding, derivatives = await _market_context(session, settings)
-    caption = format_market(
-        snap, cfg.timeframe, fear_greed=fear_greed, funding=funding, derivatives=derivatives,
-    )
-    await answer_with_chart(
-        callback.message,
-        caption,
-        candles,
-        cfg,
-        reply_markup=refresh_keyboard("menu:market"),
-    )
+    async with show_progress(callback.message, "⏳ Загружаю рынок..."):
+        cfg, candles, snap, fear_greed, funding, derivatives = await _market_context(session, settings)
+        caption = format_market(
+            snap, cfg.timeframe, fear_greed=fear_greed, funding=funding, derivatives=derivatives,
+        )
+        await answer_with_chart(
+            callback.message,
+            caption,
+            candles,
+            cfg,
+            reply_markup=refresh_keyboard("menu:market"),
+        )
 
 
 @router.callback_query(F.data == "menu:stats")
@@ -557,17 +563,18 @@ async def stats_equity_chart(callback: CallbackQuery, session: AsyncSession) -> 
 
     from app.services.chart import render_equity_curve
 
-    chart = await asyncio.to_thread(
-        render_equity_curve,
-        curve,
-        initial=1000.0,
-        title="Live Equity · 10% банка",
-    )
-    await callback.message.answer_photo(
-        BufferedInputFile(chart, filename="live-equity.png"),
-        caption="📈 Кривая капитала по закрытым сделкам (10% банка, реинвест)",
-        reply_markup=stats_keyboard(has_equity=True),
-    )
+    async with show_progress(callback.message, "⏳ Строю график капитала..."):
+        chart = await asyncio.to_thread(
+            render_equity_curve,
+            curve,
+            initial=1000.0,
+            title="Live Equity · 10% банка",
+        )
+        await callback.message.answer_photo(
+            BufferedInputFile(chart, filename="live-equity.png"),
+            caption="📈 Кривая капитала по закрытым сделкам (10% банка, реинвест)",
+            reply_markup=stats_keyboard(has_equity=True),
+        )
 
 
 @router.callback_query(F.data.regexp(r"^hist:(all|win|loss|open):\d+:\d+$"))

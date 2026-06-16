@@ -6,8 +6,10 @@ import asyncio
 import contextlib
 import logging
 
+from aiohttp import ClientTimeout
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.types import ErrorEvent
 
@@ -22,6 +24,7 @@ from app.services.funding_monitor import setup_funding_scheduler
 from app.services.liquidation_monitor import run_liquidation_monitor
 from app.services.subscription import poll_pending_invoices
 from app.services.trade_tracker import setup_scheduler
+from app.utils.error_notify import notify_user_about_error
 
 logger = logging.getLogger(__name__)
 
@@ -36,16 +39,20 @@ async def run_bot(settings: Settings) -> None:
         async with session_pool() as session:
             await ensure_admin_users(session, settings.parsed_admin_ids)
 
+        http_session = AiohttpSession(timeout=ClientTimeout(total=90, connect=20, sock_read=60))
         bot = Bot(
             token=settings.bot_token,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+            session=http_session,
         )
         dispatcher = Dispatcher()
         dispatcher["settings"] = settings
 
         @dispatcher.errors()
-        async def on_error(event: ErrorEvent) -> bool:
+        async def on_error(event: ErrorEvent, bot: Bot) -> bool:
             logger.exception("Handler error: %s", event.exception)
+            if event.update is not None:
+                await notify_user_about_error(event.update, bot)
             return True
 
         dispatcher.update.middleware(DbSessionMiddleware(session_pool))
@@ -106,7 +113,12 @@ async def run_bot(settings: Settings) -> None:
         logger.info("Bot online: symbol=%s", settings.symbol)
         try:
             await bot.delete_webhook(drop_pending_updates=True)
-            await dispatcher.start_polling(bot)
+            await dispatcher.start_polling(
+                bot,
+                polling_timeout=30,
+                handle_as_tasks=True,
+                close_bot_session=True,
+            )
         finally:
             if webhook_runner is not None:
                 await webhook_runner.cleanup()
