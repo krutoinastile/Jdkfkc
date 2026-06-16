@@ -6,7 +6,8 @@ import asyncio
 import contextlib
 import logging
 
-from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import ErrorEvent
 
@@ -36,11 +37,9 @@ async def run_bot(settings: Settings) -> None:
         async with session_pool() as session:
             await ensure_admin_users(session, settings.parsed_admin_ids)
 
-        http_session = AiohttpSession(timeout=ClientTimeout(total=90, connect=20, sock_read=60))
         bot = Bot(
             token=settings.bot_token,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-            session=http_session,
         )
         dispatcher = Dispatcher()
         dispatcher["settings"] = settings
