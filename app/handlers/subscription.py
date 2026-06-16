@@ -71,12 +71,15 @@ async def _show_subscription(message: Message, session: AsyncSession, settings: 
         referral_stats=stats,
         giveaway_info=giveaway_info,
     )
+    code = user.referral_code or ""
+    referral_link = f"https://t.me/{await _bot_username(message)}?start=ref_{code}" if code else None
     await message.answer(
         text,
         reply_markup=subscription_keyboard(
             has_active=is_subscription_active(user),
             has_giveaway=giveaway_info is not None,
             entered_giveaway=entered,
+            referral_link=referral_link,
         ),
     )
 
@@ -133,6 +136,23 @@ async def subscription_check(callback: CallbackQuery, session: AsyncSession) -> 
         await callback.message.answer("✅ Оплата подтверждена! Подписка активна.")
     else:
         await callback.message.answer("⏳ Оплата пока не найдена. Если уже оплатили — подождите минуту и проверьте снова.")
+
+
+@router.callback_query(F.data == "sub:referral")
+async def subscription_referral(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    if callback.from_user is None or not isinstance(callback.message, Message):
+        return
+    user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
+    if callback.message.bot is None:
+        return
+    me = await callback.message.bot.get_me()
+    code = user.referral_code or "—"
+    link = f"https://t.me/{me.username}?start=ref_{code}"
+    await callback.message.answer(
+        f"📋 <b>Ваша реферальная ссылка</b>\n\n<code>{link}</code>\n\n"
+        f"<i>Друг получит скидку, вы — бонусные дни подписки.</i>"
+    )
 
 
 @router.callback_query(F.data == "sub:giveaway:enter")

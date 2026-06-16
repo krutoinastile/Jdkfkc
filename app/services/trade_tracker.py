@@ -20,6 +20,7 @@ from app.database.repositories import (
     mark_partial_take_profit,
 )
 from app.services.subscription import list_premium_notify_users, send_subscription_reminders
+from app.services.admin_alerts import on_trade_closed as admin_alert_trade_closed
 from app.services.market_data import Candle, fetch_candles, fetch_current_price
 from app.services.trade_management import apply_trailing_stop
 from app.utils.telegram import send_signal_chart
@@ -28,6 +29,8 @@ from app.services.strategy_config import StrategyConfig
 from app.utils.leverage import get_leverage, spot_to_leveraged
 from app.utils.trade_pnl import combined_close_pnl, partial_tp_hit, partial_tp_price, spot_pnl_pct
 from app.utils.messages import format_signal_card, format_trade_closed
+from app.keyboards.user import signal_keyboard
+from app.database.repositories import is_admin
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +204,9 @@ async def notify_signal(
 
     for tg_id in recipient_ids:
         try:
-            await bot.send_message(chat_id=tg_id, text=text)
+            admin = await is_admin(tg_id, settings.parsed_admin_ids)
+            kb = signal_keyboard(signal, settings, is_admin=admin)
+            await bot.send_message(chat_id=tg_id, text=text, reply_markup=kb)
             if candles and cfg:
                 await send_signal_chart(bot, tg_id, candles, cfg, signal)
         except Exception:
@@ -244,6 +249,7 @@ def setup_scheduler(session_pool: async_sessionmaker[AsyncSession], bot: Bot, se
                 closed = await check_open_trades(session, settings, bot)
                 for signal in closed:
                     await notify_trade_closed(bot, session, signal, settings)
+                    await admin_alert_trade_closed(session, bot, settings, signal)
             except Exception:
                 logger.exception("Check trades job failed")
 
@@ -254,7 +260,27 @@ def setup_scheduler(session_pool: async_sessionmaker[AsyncSession], bot: Bot, se
             except Exception:
                 logger.exception("Subscription reminder job failed")
 
+    async def drawdown_job() -> None:
+        async with session_pool() as session:
+            try:
+                from app.services.admin_alerts import check_weekly_drawdown
+
+                await check_weekly_drawdown(session, bot, settings)
+            except Exception:
+                logger.exception("Drawdown alert job failed")
+
+    async def weekly_reopt_job() -> None:
+        async with session_pool() as session:
+            try:
+                from app.services.weekly_reopt import run_weekly_reopt_report
+
+                await run_weekly_reopt_report(session, bot, settings)
+            except Exception:
+                logger.exception("Weekly reopt job failed")
+
     scheduler.add_job(scan_job, "interval", minutes=settings.scan_interval_minutes, id="market_scan")
     scheduler.add_job(check_job, "interval", minutes=settings.trade_check_interval_minutes, id="trade_check")
     scheduler.add_job(subscription_reminder_job, "interval", hours=12, id="sub_reminders")
+    scheduler.add_job(drawdown_job, "interval", hours=24, id="drawdown_alert")
+    scheduler.add_job(weekly_reopt_job, "cron", day_of_week="sun", hour=3, minute=0, id="weekly_reopt")
     return scheduler

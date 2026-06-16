@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     bingx_api_key: str = Field(default="", validation_alias="BINGX_API_KEY")
     bingx_api_secret: str = Field(default="", validation_alias="BINGX_API_SECRET")
     bingx_testnet: bool = Field(default=False, validation_alias="BINGX_TESTNET")
+    bingx_order_usdt: float = Field(default=50.0, validation_alias="BINGX_ORDER_USDT")
 
     @property
     def parsed_admin_ids(self) -> tuple[int, ...]:

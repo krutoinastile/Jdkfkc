@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import logging
+from datetime import UTC, datetime
 
 from aiohttp import web
 from aiogram import Bot
@@ -64,6 +65,17 @@ async def cryptopay_webhook_handler(request: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
+async def health_handler(request: web.Request) -> web.Response:
+    settings: Settings = request.app["settings"]
+    payload = {
+        "status": "ok",
+        "timestamp": datetime.now(tz=UTC).isoformat(),
+        "symbol": settings.symbol,
+        "timeframe": settings.timeframe,
+    }
+    return web.json_response(payload)
+
+
 async def start_webhook_server(
     *,
     settings: Settings,
@@ -75,7 +87,7 @@ async def start_webhook_server(
     app["bot"] = bot
     app["settings"] = settings
     app.router.add_post(settings.cryptopay_webhook_path, cryptopay_webhook_handler)
-    app.router.add_get("/health", lambda _: web.Response(text="ok"))
+    app.router.add_get("/health", health_handler)
 
     runner = web.AppRunner(app)
     await runner.setup()

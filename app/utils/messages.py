@@ -22,14 +22,33 @@ from app.utils.formatting import (
 from app.utils.leverage import get_leverage, leveraged_move
 
 
-def welcome_text() -> str:
+def format_subscription_badge(user) -> str:
+    from datetime import UTC, datetime
+
+    from app.database.billing_repositories import is_subscription_active
+    from app.utils.datetime_utils import ensure_utc
+
+    if is_subscription_active(user):
+        until = ensure_utc(user.subscription_until)
+        if until:
+            days = max(0, (until - datetime.now(tz=UTC)).days)
+            return f"💎 Подписка активна · <b>{days}</b> дн. осталось"
+        return "💎 Подписка активна"
+    return "🔒 Подписка не активна — <b>💎 Подписка</b> для сигналов"
+
+
+def welcome_text(*, subscription_line: str | None = None) -> str:
+    sub_block = ""
+    if subscription_line:
+        sub_block = f"{section('Аккаунт')}\n   {subscription_line}\n"
     return (
         f"{header('₿ BTC Trading Bot', 'Аналитика и сигналы в реальном времени')}\n"
+        f"{sub_block}"
         f"{section('Возможности')}\n"
         f"{bullet_list([
             '📊 Сигналы LONG / SHORT · плечо 20x',
             '⏱ до 2 сделок в день',
-            '🎯 Адаптивная стратегия (BB / Swing / MR)',
+            '🎯 BB Squeeze · 1h таймфрейм',
             '🛡 Trailing SL · авто-перезапуск 24/7',
             '😱 Fear & Greed · Funding · Open Interest',
             '🔥 Ликвидации Binance Futures',
@@ -168,13 +187,18 @@ def format_dashboard(
     funding: dict | None = None,
     derivatives: dict | None = None,
     open_trade_text: str | None = None,
+    subscription_line: str | None = None,
 ) -> str:
     open_section = ""
     if open_trade_text:
         open_section = f"{section('Открытая сделка')}\n{open_trade_text}\n"
+    sub_section = ""
+    if subscription_line:
+        sub_section = f"{section('Подписка')}\n   {subscription_line}\n"
 
     return (
         f"{header('🏠 Дашборд', 'Bitcoin Trading')}\n"
+        f"{sub_section}"
         f"{section('Рынок')}\n"
         f"{kv('BTC', f'<b>{money(snap['price'])}</b>  {snap['trend']}')}\n"
         f"{kv('Режим', snap.get('regime', '—'))}\n"
