@@ -34,6 +34,7 @@ from app.keyboards.user import (
     refresh_keyboard,
     settings_keyboard,
     settings_text,
+    signal_keyboard,
     stats_keyboard,
 )
 from app.services.backtest import run_backtest
@@ -45,6 +46,7 @@ from app.services.sentiment import fetch_fear_greed
 from app.services.strategy import market_snapshot
 from app.services.strategy_config import StrategyConfig
 from app.services.subscription import user_has_signal_access
+from app.services.bingx import BingXClient, BingXError, bingx_configured
 from app.services.trade_tracker import format_signal_message
 from app.states.user import CalculatorStates
 from app.utils.messages import (
@@ -61,6 +63,7 @@ from app.utils.messages import (
     format_market,
     format_no_signal,
     format_stats,
+    format_subscription_badge,
     help_text,
     welcome_text,
 )
@@ -223,14 +226,18 @@ async def start(
     ref_code = None
     if command.args and command.args.startswith("ref_"):
         ref_code = command.args[4:]
-    await get_or_create_user(
+    user = await get_or_create_user(
         session,
         message.from_user.id,
         message.from_user.username,
         referrer_code=ref_code,
     )
     admin = await is_admin(message.from_user.id, settings.parsed_admin_ids)
-    await message.answer(welcome_text(), reply_markup=main_menu_keyboard(is_admin=admin))
+    sub_line = format_subscription_badge(user)
+    await message.answer(
+        welcome_text(subscription_line=sub_line),
+        reply_markup=main_menu_keyboard(is_admin=admin),
+    )
 
 
 @router.callback_query(F.data == "menu:home")
@@ -240,7 +247,12 @@ async def menu_home(callback: CallbackQuery, session: AsyncSession, settings: Se
     if callback.from_user is None or not isinstance(callback.message, Message):
         return
     admin = await is_admin(callback.from_user.id, settings.parsed_admin_ids)
-    await callback.message.answer(welcome_text(), reply_markup=main_menu_keyboard(is_admin=admin))
+    user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
+    sub_line = format_subscription_badge(user)
+    await callback.message.answer(
+        welcome_text(subscription_line=sub_line),
+        reply_markup=main_menu_keyboard(is_admin=admin),
+    )
 
 
 @router.callback_query(F.data == "menu:dashboard")
@@ -257,6 +269,8 @@ async def menu_dashboard(callback: CallbackQuery, session: AsyncSession, setting
         if open_signals:
             price = await fetch_current_price(settings.symbol)
             open_trade_text = format_live_trade(open_signals[0], price)
+        user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
+        sub_line = format_subscription_badge(user)
         caption = format_dashboard(
             snap,
             stats,
@@ -265,6 +279,7 @@ async def menu_dashboard(callback: CallbackQuery, session: AsyncSession, setting
             funding=funding,
             derivatives=derivatives,
             open_trade_text=open_trade_text,
+            subscription_line=sub_line,
         )
         await answer_with_chart(
             callback.message,
@@ -501,13 +516,14 @@ async def menu_signal(callback: CallbackQuery, session: AsyncSession, settings: 
 
         if open_signals:
             signal = open_signals[0]
+            admin = await is_admin(callback.from_user.id, settings.parsed_admin_ids)
             await answer_with_chart(
                 callback.message,
                 format_signal_message(signal, current_price=current_price),
                 candles,
                 cfg,
                 signal=signal,
-                reply_markup=refresh_keyboard("menu:signal"),
+                reply_markup=signal_keyboard(signal, settings, is_admin=admin),
             )
             return
 
@@ -662,12 +678,15 @@ async def signal_cmd(message: Message, session: AsyncSession, settings: Settings
     cfg, candles, snap, _, _, _ = await _market_context(session, settings)
     current_price = await fetch_current_price(settings.symbol)
     if open_signals:
+        signal = open_signals[0]
+        admin = message.from_user and await is_admin(message.from_user.id, settings.parsed_admin_ids)
         await answer_with_chart(
             message,
             format_signal_message(open_signals[0], current_price=current_price),
             candles,
             cfg,
             signal=open_signals[0],
+            reply_markup=signal_keyboard(signal, settings, is_admin=bool(admin)),
         )
     else:
         await answer_with_chart(message, format_no_signal(snap), candles, cfg)
@@ -681,3 +700,39 @@ async def calc_cmd(message: Message, session: AsyncSession, state: FSMContext) -
         format_calculator_intro(counts.get(0, 0)),
         reply_markup=calculator_period_keyboard(counts),
     )
+
+
+@router.callback_query(F.data.startswith("bingx:exec:"))
+async def bingx_execute(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    if callback.from_user is None or not isinstance(callback.message, Message):
+        return
+    if not await is_admin(callback.from_user.id, settings.parsed_admin_ids):
+        await callback.answer("Только для админа", show_alert=True)
+        return
+    if not bingx_configured(settings):
+        await callback.answer("BingX API не настроен", show_alert=True)
+        return
+
+    signal_id = int(callback.data.split(":")[-1])
+    signal = await get_signal_by_id(session, signal_id)
+    if signal is None or signal.status != "open":
+        await callback.answer("Сигнал не найден или уже закрыт", show_alert=True)
+        return
+
+    await callback.answer("Исполняю на BingX...")
+    net_label = "testnet" if settings.bingx_testnet else "mainnet"
+    try:
+        client = BingXClient(settings)
+        result = await client.execute_signal(signal)
+        qty = result["quantity"]
+        await callback.message.answer(
+            f"✅ <b>Ордер на BingX ({net_label})</b>\n\n"
+            f"Сделка <b>#{signal.id}</b> · {signal.direction.upper()}\n"
+            f"Объём: <b>{qty}</b> BTC (~${settings.bingx_order_usdt:g})\n"
+            f"SL: <b>{signal.stop_loss:,.2f}</b> · TP: <b>{signal.take_profit:,.2f}</b>\n\n"
+            f"<i>Проверьте позицию на бирже.</i>"
+        )
+    except BingXError as exc:
+        await callback.message.answer(f"❌ BingX: {exc}")
+    except Exception:
+        await callback.message.answer("❌ Ошибка исполнения на BingX. Проверьте ключи и testnet.")

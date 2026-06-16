@@ -69,11 +69,15 @@ async def run_bot(settings: Settings) -> None:
         scheduler.add_job(invoice_poll_job, "interval", seconds=settings.invoice_poll_seconds, id="invoice_poll")
 
         async def health_check_job() -> None:
+            from app.services.admin_alerts import on_health_check_failed, on_health_check_ok
+
             try:
                 me = await bot.get_me()
                 logger.debug("Health OK: @%s", me.username)
-            except Exception:
+                on_health_check_ok()
+            except Exception as exc:
                 logger.exception("Health check failed")
+                await on_health_check_failed(bot, settings, error=str(exc))
 
         scheduler.add_job(health_check_job, "interval", minutes=10, id="health_check")
 

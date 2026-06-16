@@ -1,12 +1,24 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 
-def subscription_keyboard(*, has_active: bool, has_giveaway: bool, entered_giveaway: bool) -> InlineKeyboardMarkup:
+def subscription_keyboard(
+    *,
+    has_active: bool,
+    has_giveaway: bool,
+    entered_giveaway: bool,
+    referral_link: str | None = None,
+) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if not has_active:
         rows.append([InlineKeyboardButton(text="💳 Оплатить подписку", callback_data="sub:pay")])
     else:
         rows.append([InlineKeyboardButton(text="🔄 Продлить подписку", callback_data="sub:pay")])
+    if referral_link:
+        share_url = f"https://t.me/share/url?url={referral_link}"
+        rows.append([
+            InlineKeyboardButton(text="📋 Реф. ссылка", callback_data="sub:referral"),
+            InlineKeyboardButton(text="📤 Поделиться", url=share_url),
+        ])
     if has_giveaway:
         label = "✅ Вы в розыгрыше" if entered_giveaway else "🎁 Участвовать в розыгрыше"
         if not entered_giveaway:

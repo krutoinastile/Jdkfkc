@@ -1,6 +1,8 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from app.database.models import User
+from app.config import Settings
+from app.database.models import Signal, User
+from app.services.bingx import bingx_configured, bingx_trade_url
 
 
 def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
@@ -85,6 +87,31 @@ def refresh_keyboard(refresh_data: str) -> InlineKeyboardMarkup:
             ],
         ]
     )
+
+
+def signal_keyboard(
+    signal: Signal,
+    settings: Settings,
+    *,
+    is_admin: bool = False,
+    refresh_data: str = "menu:signal",
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(
+            text="📈 Открыть на BingX",
+            url=bingx_trade_url(signal.symbol, testnet=settings.bingx_testnet),
+        )],
+    ]
+    if is_admin and bingx_configured(settings):
+        rows.append([InlineKeyboardButton(
+            text="⚡ Исполнить на BingX",
+            callback_data=f"bingx:exec:{signal.id}",
+        )])
+    rows.append([
+        InlineKeyboardButton(text="🔄 Обновить", callback_data=refresh_data),
+        InlineKeyboardButton(text="◀️ Меню", callback_data="menu:home"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def calculator_period_keyboard(counts: dict[int, int]) -> InlineKeyboardMarkup:
