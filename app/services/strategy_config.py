@@ -47,7 +47,7 @@ class StrategyConfig:
             use_volume_filter=row.use_volume_filter,
             use_higher_tf=row.use_higher_tf,
             htf_strict=getattr(row, "htf_strict", True),
-            min_adx=getattr(row, "min_adx", 18.0),
+            min_adx=getattr(row, "min_adx", 16.0),
             trend_separation_pct=getattr(row, "trend_separation_pct", 0.002),
             pullback_atr_mult=getattr(row, "pullback_atr_mult", 0.55),
             scanning_enabled=row.scanning_enabled,

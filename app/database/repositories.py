@@ -315,6 +315,7 @@ async def get_statistics(session: AsyncSession) -> dict[str, float | int]:
     worst_pnl = 0.0
     total_bank_pnl = 0.0
     max_drawdown = 0.0
+    equity_curve: list[float] = [1000.0]
     if closed_signals:
         bank_pnls = [pnl_on_bank(p, DEFAULT_BANK_ALLOCATION_PCT) for p in (s.pnl_percent for s in closed_signals) if p is not None]
         if bank_pnls:
@@ -325,6 +326,7 @@ async def get_statistics(session: AsyncSession) -> dict[str, float | int]:
             peak = capital
             for bp in bank_pnls:
                 capital *= 1 + bp / 100
+                equity_curve.append(round(capital, 2))
                 peak = max(peak, capital)
                 if peak > 0:
                     max_drawdown = max(max_drawdown, (peak - capital) / peak * 100)
@@ -347,6 +349,7 @@ async def get_statistics(session: AsyncSession) -> dict[str, float | int]:
         "worst_pnl": round(worst_pnl, 2),
         "total_bank_pnl": round(total_bank_pnl, 2),
         "max_drawdown": round(max_drawdown, 2),
+        "equity_curve": equity_curve if len(equity_curve) > 1 else [],
     }
 
 
@@ -421,15 +424,19 @@ async def get_signal_by_id(session: AsyncSession, signal_id: int) -> Signal | No
 
 async def force_close_signal(session: AsyncSession, signal: Signal, exit_price: float) -> Signal:
     from app.utils.leverage import get_leverage, spot_to_leveraged
+    from app.utils.trade_pnl import combined_close_pnl
 
     lev = get_leverage(signal)
     if signal.direction == "long":
         spot = (exit_price - signal.entry_price) / signal.entry_price * 100
     else:
         spot = (signal.entry_price - exit_price) / signal.entry_price * 100
+    remaining = 0.5 if signal.partial_tp_hit else 1.0
+    margin = spot_to_leveraged(spot, lev) * remaining
+    pnl = combined_close_pnl(signal, margin)
     status = TradeStatus.WIN.value if spot > 0 else TradeStatus.LOSS.value
     return await close_signal(
         session, signal, status=status, exit_price=exit_price,
-        pnl_percent=spot_to_leveraged(spot, lev),
+        pnl_percent=pnl,
     )
 

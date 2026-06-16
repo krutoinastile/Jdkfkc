@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from app.services.indicators import adx, atr
+from app.services.indicators import adx
 from app.services.market_data import Candle
+from app.services.signal_filters import passes_entry_filters
 from app.services.strategy import TradeSignal, analyze_bb_squeeze
 from app.services.strategy_config import StrategyConfig
 from app.services.strategy_variants import analyze_mean_reversion, analyze_swing_breakout
@@ -41,16 +42,16 @@ def analyze_candles(
     candidates: list[TradeSignal] = []
 
     squeeze = analyze_bb_squeeze(candles, cfg, htf_candles=htf_candles)
-    if squeeze:
+    if squeeze and passes_entry_filters(squeeze, candles, cfg, htf_candles):
         candidates.append(squeeze)
 
     if adx_val < 22:
         mr = analyze_mean_reversion(candles, cfg, htf_candles=htf_candles)
-        if mr:
+        if mr and passes_entry_filters(mr, candles, cfg, htf_candles):
             candidates.append(mr)
     elif adx_val >= 28:
         swing = analyze_swing_breakout(candles, cfg, htf_candles=htf_candles)
-        if swing:
+        if swing and passes_entry_filters(swing, candles, cfg, htf_candles):
             candidates.append(swing)
 
     if not candidates:
