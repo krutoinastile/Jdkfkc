@@ -96,6 +96,8 @@ def format_stats(stats: dict) -> str:
             f"{kv('Лучшая / Худшая', f'{pnl_colored(stats.get('best_pnl', 0))} / {pnl_colored(stats.get('worst_pnl', 0))}')}\n"
             f"{kv('Max Drawdown', f'<b>{stats.get('max_drawdown', 0):.1f}%</b>')}"
         )
+        if stats.get("equity_curve"):
+            extra += f"\n<i>📈 Кривая капитала — кнопка ниже</i>"
     return (
         f"{header('📈 Статистика', f'{total} сигналов всего')}\n"
         f"{section('Результаты')}\n"
@@ -506,7 +508,7 @@ def format_calculator_empty(*, days: int | None = None) -> str:
     )
 
 
-def format_backtest_intro(timeframe: str) -> str:
+def format_backtest_intro(timeframe: str, *, leverage: int = 20) -> str:
     from app.utils.backtest_ui import BACKTEST_PERIODS
 
     periods = " · ".join(BACKTEST_PERIODS.values())
@@ -515,8 +517,9 @@ def format_backtest_intro(timeframe: str) -> str:
         f"Период: <b>{periods}</b>\n"
         f"Таймфрейм: <b>{timeframe}</b> "
         f"{'✅' if timeframe == '1h' else '⚠️ стратегия оптимизирована под 1h'}\n"
-        f"Плечо: <b>20x</b> · Капитал: <b>$1,000</b>\n"
-        f"Ставка: <b>10% банка</b> на сделку\n\n"
+        f"Плечо: <b>{leverage}x</b> · Капитал: <b>$1,000</b>\n"
+        f"Ставка: <b>10% банка</b> на сделку\n"
+        f"Правила: late trailing · partial TP опционально · expiry 72ч\n\n"
         f"<i>Выберите период, затем лимит сделок в день.\n"
         f"В отчёте — кривая капитала.</i>"
         f"{footer()}"
@@ -530,6 +533,7 @@ def format_backtest_result(
     days: int,
     bars: int,
     max_trades_per_day: int,
+    leverage: int = 20,
 ) -> str:  # noqa: ANN001
     from app.services.backtest import BacktestResult
     from app.utils.backtest_ui import period_days_from_candles, period_label, trades_per_day_label
@@ -550,7 +554,7 @@ def format_backtest_result(
     elif result.trades:
         history_note = (
             f"\n<i>ℹ️ {limit_label} · ~{covered:.0f} дн. · {len(result.trades)} сделок · "
-            f"ставка 10% банка · 20x.</i>"
+            f"ставка 10% банка · {leverage}x.</i>"
         )
 
     if not result.trades:
@@ -569,11 +573,11 @@ def format_backtest_result(
     profit_emoji = "📈" if profit >= 0 else "📉"
 
     return (
-        f"{header('🔬 Бэктест', f'{label} · {timeframe} · 20x · 10%')}\n"
+        f"{header('🔬 Бэктест', f'{label} · {timeframe} · {leverage}x · 10%')}\n"
         f"{section('Настройки')}\n"
         f"{kv('Период', f'<b>{label}</b>')}\n"
         f"{kv('Лимит', f'<b>{limit_label}</b>')}\n"
-        f"{kv('Ставка', f'<b>10% банка</b> · <b>20x</b>')}\n"
+        f"{kv('Ставка', f'<b>10% банка</b> · <b>{leverage}x</b>')}\n"
         f"{kv('Свечей', f'<b>{bars}</b> (~{covered} дн.)')}\n"
         f"{kv('~Сделок/мес', f'<b>{trades_per_month:.1f}</b>')}\n"
         f"{kv('Факт макс/день', f'<b>{result.max_trades_per_day}</b> · ср. <b>{result.avg_trades_per_day:.2f}</b>')}\n"
@@ -587,8 +591,8 @@ def format_backtest_result(
         f"{kv('Лучшая / Худшая', f'{pnl_colored(result.best_pct)} / {pnl_colored(result.worst_pct)}')}\n"
         f"{section(f'{profit_emoji} Капитал $1000')}\n"
         f"{kv('Итого', f'<b>{money(result.final_capital)}</b>')}\n"
-        f"{kv('Прибыль', f'<b>{money(profit)}</b> ({pnl_colored(profit / result.simulated_capital * 100)})')}\n\n"
-        f"<i>Расчёт: 10% депозита в маржу · 20x · реинвест.</i>"
+        f"{kv('Прибыль', f'<b>{money(profit)}</b> ({pnl_colored(profit / result.simulated_capital * 100)})')}\n"
+        f"<i>Расчёт: 10% депозита · {leverage}x · trailing/partial/expiry как в live.</i>"
         f"{history_note}"
         f"{footer()}"
     )

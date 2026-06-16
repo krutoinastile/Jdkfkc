@@ -1,12 +1,12 @@
-"""Adaptive strategy router — picks best signal by market regime (ADX)."""
+"""Adaptive strategy router — BB Squeeze with HTF/MACD/volume filters."""
 
 from __future__ import annotations
 
-from app.services.indicators import adx, atr
+from app.services.indicators import adx
 from app.services.market_data import Candle
+from app.services.signal_filters import passes_entry_filters
 from app.services.strategy import TradeSignal, analyze_bb_squeeze
 from app.services.strategy_config import StrategyConfig
-from app.services.strategy_variants import analyze_mean_reversion, analyze_swing_breakout
 
 
 def _adx_now(candles: list[Candle]) -> float | None:
@@ -23,10 +23,10 @@ def _adx_now(candles: list[Candle]) -> float | None:
 
 def regime_label(adx_val: float) -> str:
     if adx_val < 20:
-        return "боковик → Mean Reversion"
+        return "боковик"
     if adx_val >= 30:
-        return "тренд → Swing Breakout"
-    return "умеренный → BB Squeeze"
+        return "тренд"
+    return "умеренный"
 
 
 def analyze_candles(
@@ -34,29 +34,13 @@ def analyze_candles(
     cfg: StrategyConfig,
     htf_candles: list[Candle] | None = None,
 ) -> TradeSignal | None:
-    adx_val = _adx_now(candles)
-    if adx_val is None:
-        return analyze_bb_squeeze(candles, cfg, htf_candles=htf_candles)
-
-    candidates: list[TradeSignal] = []
-
-    squeeze = analyze_bb_squeeze(candles, cfg, htf_candles=htf_candles)
-    if squeeze:
-        candidates.append(squeeze)
-
-    if adx_val < 22:
-        mr = analyze_mean_reversion(candles, cfg, htf_candles=htf_candles)
-        if mr:
-            candidates.append(mr)
-    elif adx_val >= 28:
-        swing = analyze_swing_breakout(candles, cfg, htf_candles=htf_candles)
-        if swing:
-            candidates.append(swing)
-
-    if not candidates:
+    """BB Squeeze only — best long-term edge vs multi-strategy router."""
+    signal = analyze_bb_squeeze(candles, cfg, htf_candles=htf_candles)
+    if signal is None or not passes_entry_filters(signal, candles, cfg, htf_candles):
         return None
 
-    best = max(candidates, key=lambda s: s.strength)
-    mode = regime_label(adx_val)
-    best.reason = f"[{mode}] {best.reason}"
-    return best
+    adx_val = _adx_now(candles)
+    if adx_val is not None:
+        mode = regime_label(adx_val)
+        signal.reason = f"[{mode} · BB Squeeze] {signal.reason}"
+    return signal

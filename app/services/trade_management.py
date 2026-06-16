@@ -1,4 +1,4 @@
-"""Trailing stop and breakeven management."""
+"""Trailing stop management."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Signal
 from app.database.repositories import update_signal_stop_loss
+from app.services.trailing_sl import compute_trailing_stop
 from app.utils.trade_pnl import initial_risk
 
 logger = logging.getLogger(__name__)
@@ -20,42 +21,20 @@ def _better_sl(signal: Signal, candidate: float) -> bool:
 
 
 async def apply_trailing_stop(session: AsyncSession, signal: Signal, price: float) -> str | None:
-    """Move SL to breakeven/trail. Returns event label if SL moved."""
-    """Move SL to breakeven at +1R, lock +0.5R at +2R, trail by 1 ATR at +3R."""
+    """Move SL: lock +0.5R at +2R, ATR trail at +3R (no early breakeven at +1R)."""
     risk = initial_risk(signal)
     if risk <= 0:
         return None
 
-    entry = signal.entry_price
     atr = signal.atr or risk
-    new_sl: float | None = None
-    event: str | None = None
-
-    if signal.direction == "long":
-        profit = price - entry
-        if profit >= risk:
-            new_sl = entry
-            event = "breakeven"
-        if profit >= 2 * risk:
-            new_sl = max(new_sl or entry, entry + 0.5 * risk)
-            event = "lock_half_r"
-        if profit >= 3 * risk:
-            trail = price - atr
-            new_sl = max(new_sl or trail, trail)
-            event = "trail"
-    else:
-        profit = entry - price
-        if profit >= risk:
-            new_sl = entry
-            event = "breakeven"
-        if profit >= 2 * risk:
-            new_sl = min(new_sl or entry, entry - 0.5 * risk)
-            event = "lock_half_r"
-        if profit >= 3 * risk:
-            trail = price + atr
-            new_sl = min(new_sl or trail, trail)
-            event = "trail"
-
+    new_sl, event = compute_trailing_stop(
+        direction=signal.direction,
+        entry=signal.entry_price,
+        current_sl=signal.stop_loss,
+        initial_sl=signal.initial_stop_loss or signal.stop_loss,
+        atr=atr,
+        price=price,
+    )
     if new_sl is None or not _better_sl(signal, new_sl):
         return None
 

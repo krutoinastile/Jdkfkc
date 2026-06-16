@@ -50,7 +50,6 @@ async def run_bot(settings: Settings) -> None:
 
         dispatcher.update.middleware(DbSessionMiddleware(session_pool))
         dispatcher.include_router(admin_router)
-        admin_router.include_router(admin_billing_router)
         dispatcher.include_router(subscription_router)
         dispatcher.include_router(user_router)
 

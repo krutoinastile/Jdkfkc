@@ -13,20 +13,21 @@ class StrategyConfig:
     rsi_long_max: float = 68.0
     rsi_short_min: float = 32.0
     rsi_short_max: float = 60.0
-    atr_sl_mult: float = 1.5
-    atr_tp_mult: float = 4.0
+    atr_sl_mult: float = 1.8
+    atr_tp_mult: float = 5.0
     use_macd_filter: bool = True
     use_volume_filter: bool = True
     use_higher_tf: bool = True
     htf_strict: bool = True
-    min_adx: float = 16.0
+    min_adx: float = 18.0
     trend_separation_pct: float = 0.002
     pullback_atr_mult: float = 0.55
     scanning_enabled: bool = True
-    min_signal_strength: int = 55
-    min_hours_between_signals: float = 12.0
-    max_signals_per_day: int = 2
+    min_signal_strength: int = 62
+    min_hours_between_signals: float = 24.0
+    max_signals_per_day: int = 1
     leverage: int = 20
+    partial_tp_enabled: bool = False
 
     @classmethod
     def from_db(cls, row) -> "StrategyConfig":
@@ -52,7 +53,8 @@ class StrategyConfig:
             pullback_atr_mult=getattr(row, "pullback_atr_mult", 0.55),
             scanning_enabled=row.scanning_enabled,
             min_signal_strength=row.min_signal_strength,
-            min_hours_between_signals=getattr(row, "min_hours_between_signals", 12.0),
-            max_signals_per_day=getattr(row, "max_signals_per_day", 2),
+            min_hours_between_signals=getattr(row, "min_hours_between_signals", 24.0),
+            max_signals_per_day=getattr(row, "max_signals_per_day", 1),
             leverage=getattr(row, "leverage", 20),
+            partial_tp_enabled=getattr(row, "partial_tp_enabled", False),
         )
