@@ -67,7 +67,7 @@ def _make_signal(
     )
 
 
-def analyze_candles(
+def analyze_bb_squeeze(
     candles: list[Candle],
     cfg: StrategyConfig,
     htf_candles: list[Candle] | None = None,
@@ -150,6 +150,16 @@ def analyze_candles(
     return signal
 
 
+def analyze_candles(
+    candles: list[Candle],
+    cfg: StrategyConfig,
+    htf_candles: list[Candle] | None = None,
+) -> TradeSignal | None:
+    from app.services.strategy_router import analyze_candles as route_analyze
+
+    return route_analyze(candles, cfg, htf_candles=htf_candles)
+
+
 def market_snapshot(candles: list[Candle], cfg: StrategyConfig) -> dict:
     closes = [c.close for c in candles]
     volumes = [c.volume for c in candles]
@@ -195,9 +205,14 @@ def market_snapshot(candles: list[Candle], cfg: StrategyConfig) -> dict:
             adx_state = f"слабый {adx_v:.0f}"
 
     bb_state = "—"
+    regime = "—"
     if upper and middle and lower:
         widths = [(u - l) / m if m else 0 for u, l, m in zip(upper, middle, lower)]
         squeeze_level = bb_width_percentile(widths, 50, 0.25)
+        if adx_vals:
+            from app.services.strategy_router import regime_label
+
+            regime = regime_label(adx_vals[-1])
         if squeeze_level is not None:
             if widths[-1] <= squeeze_level:
                 bb_state = "сжатие 🎯 (ожидание пробоя)"
@@ -220,4 +235,5 @@ def market_snapshot(candles: list[Candle], cfg: StrategyConfig) -> dict:
         "volume": vol_state,
         "adx": adx_state,
         "bb": bb_state,
+        "regime": regime,
     }

@@ -29,6 +29,12 @@ from app.utils.messages import format_signal_card, format_trade_closed
 
 logger = logging.getLogger(__name__)
 
+TRAIL_ALERTS = {
+    "breakeven": "🛡 <b>SL в безубыток</b> — сделка #{id} ({dir} @ {entry})",
+    "lock_half_r": "🔒 <b>+0.5R зафиксировано</b> — SL подтянут · #{id}",
+    "trail": "📈 <b>Trailing SL</b> активен · сделка #{id}",
+}
+
 
 def format_signal_message(signal: Signal, *, is_new: bool = False, current_price: float | None = None) -> str:
     return format_signal_card(signal, is_new=is_new, current_price=current_price)
@@ -87,12 +93,18 @@ async def run_market_scan(
     return signal
 
 
-async def check_open_trades(session: AsyncSession, settings: Settings) -> list[Signal]:
+async def check_open_trades(
+    session: AsyncSession,
+    settings: Settings,
+    bot: Bot,
+) -> list[Signal]:
     price = await fetch_current_price(settings.symbol)
     closed: list[Signal] = []
 
     for signal in await list_open_signals(session):
-        await apply_trailing_stop(session, signal, price)
+        trail_event = await apply_trailing_stop(session, signal, price)
+        if trail_event:
+            await _notify_trailing(bot, session, signal, settings, trail_event)
         lev = get_leverage(signal)
         if signal.direction == "long":
             if price >= signal.take_profit:
@@ -115,6 +127,31 @@ async def check_open_trades(session: AsyncSession, settings: Settings) -> list[S
 
     await expire_old_signals(session, current_price=price)
     return closed
+
+
+async def _notify_trailing(
+    bot: Bot,
+    session: AsyncSession,
+    signal: Signal,
+    settings: Settings,
+    event: str,
+) -> None:
+    template = TRAIL_ALERTS.get(event)
+    if not template:
+        return
+    text = template.format(
+        id=signal.id,
+        dir=signal.direction.upper(),
+        entry=signal.entry_price,
+    )
+    recipient_ids = set(settings.parsed_admin_ids)
+    if settings.notify_on_signal:
+        recipient_ids.update(user.tg_id for user in await list_premium_notify_users(session, settings))
+    for tg_id in recipient_ids:
+        try:
+            await bot.send_message(chat_id=tg_id, text=text)
+        except Exception:
+            logger.exception("Trailing alert failed for %s", tg_id)
 
 
 async def notify_signal(
@@ -173,7 +210,7 @@ def setup_scheduler(session_pool: async_sessionmaker[AsyncSession], bot: Bot, se
     async def check_job() -> None:
         async with session_pool() as session:
             try:
-                closed = await check_open_trades(session, settings)
+                closed = await check_open_trades(session, settings, bot)
                 for signal in closed:
                     await notify_trade_closed(bot, session, signal, settings)
             except Exception:

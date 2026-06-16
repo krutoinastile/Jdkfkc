@@ -1,90 +1,35 @@
 import asyncio
 import logging
-
-from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
+import sys
+import time
 
 from app.config import get_settings
-from app.handlers.admin_billing import router as admin_billing_router
-from app.handlers.admin import router as admin_router
-from app.handlers.subscription import router as subscription_router
-from app.handlers.user import router as user_router
 from app.logging_config import setup_logging
-from app.middlewares.db import DbSessionMiddleware
-from app.database.repositories import ensure_admin_users
-from app.database.session import create_engine, create_session_pool, init_database
-from app.services.subscription import poll_pending_invoices
-from app.services.trade_tracker import setup_scheduler
-from app.services.liquidation_monitor import run_liquidation_monitor
-from app.services.funding_monitor import setup_funding_scheduler
+from app.runtime import run_bot
 
 logger = logging.getLogger(__name__)
 
+MAX_RESTART_BACKOFF = 60
 
-async def main() -> None:
+
+def main() -> None:
     settings = get_settings()
     setup_logging(settings.log_level)
 
-    engine = create_engine(settings.database_url)
-    session_pool = create_session_pool(engine)
-    await init_database(engine)
+    backoff = 5
+    while True:
+        try:
+            asyncio.run(run_bot(settings))
+            logger.warning("Polling stopped — restarting in %ss", backoff)
+        except KeyboardInterrupt:
+            logger.info("Shutdown requested")
+            sys.exit(0)
+        except Exception:
+            logger.exception("Bot crashed — restarting in %ss", backoff)
 
-    async with session_pool() as session:
-        await ensure_admin_users(session, settings.parsed_admin_ids)
-
-    bot = Bot(
-        token=settings.bot_token,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
-    dispatcher = Dispatcher()
-    dispatcher["settings"] = settings
-
-    dispatcher.update.middleware(DbSessionMiddleware(session_pool))
-    dispatcher.include_router(admin_router)
-    admin_router.include_router(admin_billing_router)
-    dispatcher.include_router(subscription_router)
-    dispatcher.include_router(user_router)
-
-    scheduler = setup_scheduler(session_pool, bot, settings)
-    scheduler.start()
-
-    async def invoice_poll_job() -> None:
-        async with session_pool() as session:
-            try:
-                await poll_pending_invoices(session, bot)
-            except Exception:
-                logger.exception("Invoice poll failed")
-
-    scheduler.add_job(invoice_poll_job, "interval", seconds=45, id="invoice_poll")
-
-    async def startup_scan() -> None:
-        async with session_pool() as session:
-            try:
-                from app.services.trade_tracker import run_market_scan
-
-                await run_market_scan(session, settings, bot)
-            except Exception:
-                logger.exception("Startup market scan failed")
-
-    asyncio.create_task(startup_scan())
-
-    funding_scheduler = setup_funding_scheduler(session_pool, bot, settings)
-    funding_scheduler.start()
-
-    liq_task = asyncio.create_task(run_liquidation_monitor(bot, session_pool))
-
-    logger.info("Starting BTC trading bot (symbol=%s, tf=%s)", settings.symbol, settings.timeframe)
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        await dispatcher.start_polling(bot)
-    finally:
-        liq_task.cancel()
-        funding_scheduler.shutdown(wait=False)
-        scheduler.shutdown(wait=False)
-        await bot.session.close()
-        await engine.dispose()
+        time.sleep(backoff)
+        backoff = min(backoff * 2, MAX_RESTART_BACKOFF)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

@@ -270,6 +270,8 @@ async def close_signal(
 
 
 async def get_statistics(session: AsyncSession) -> dict[str, float | int]:
+    from app.utils.leverage import pnl_on_bank, DEFAULT_BANK_ALLOCATION_PCT
+
     total = await session.execute(select(func.count(Signal.id)))
     wins = await session.execute(
         select(func.count(Signal.id)).where(Signal.status == TradeStatus.WIN.value)
@@ -287,6 +289,25 @@ async def get_statistics(session: AsyncSession) -> dict[str, float | int]:
         select(func.avg(Signal.pnl_percent)).where(Signal.pnl_percent.is_not(None))
     )
 
+    closed_signals = await list_closed_signals(session, limit=500)
+    best_pnl = 0.0
+    worst_pnl = 0.0
+    total_bank_pnl = 0.0
+    max_drawdown = 0.0
+    if closed_signals:
+        bank_pnls = [pnl_on_bank(p, DEFAULT_BANK_ALLOCATION_PCT) for p in (s.pnl_percent for s in closed_signals) if p is not None]
+        if bank_pnls:
+            best_pnl = max(bank_pnls)
+            worst_pnl = min(bank_pnls)
+            total_bank_pnl = sum(bank_pnls)
+            capital = 1000.0
+            peak = capital
+            for bp in bank_pnls:
+                capital *= 1 + bp / 100
+                peak = max(peak, capital)
+                if peak > 0:
+                    max_drawdown = max(max_drawdown, (peak - capital) / peak * 100)
+
     total_n = int(total.scalar_one())
     wins_n = int(wins.scalar_one())
     losses_n = int(losses.scalar_one())
@@ -301,6 +322,10 @@ async def get_statistics(session: AsyncSession) -> dict[str, float | int]:
         "open": int(open_count.scalar_one()),
         "win_rate": round(win_rate, 1),
         "avg_pnl": round(float(avg_pnl.scalar_one() or 0), 2),
+        "best_pnl": round(best_pnl, 2),
+        "worst_pnl": round(worst_pnl, 2),
+        "total_bank_pnl": round(total_bank_pnl, 2),
+        "max_drawdown": round(max_drawdown, 2),
     }
 
 

@@ -29,8 +29,8 @@ def welcome_text() -> str:
         f"{bullet_list([
             '📊 Сигналы LONG / SHORT · плечо 20x',
             '⏱ до 2 сделок в день',
-            '🎯 BB Squeeze · ADX · Bollinger',
-            '🛡 Trailing SL · breakeven',
+            '🎯 Адаптивная стратегия (BB / Swing / MR)',
+            '🛡 Trailing SL · авто-перезапуск 24/7',
             '😱 Fear & Greed · Funding · Open Interest',
             '🔥 Ликвидации Binance Futures',
             '💰 Калькулятор прибыли · Бэктест',
@@ -88,6 +88,14 @@ def _format_funding(funding: dict | None) -> str:
 def format_stats(stats: dict) -> str:
     total_closed = stats["wins"] + stats["losses"]
     total = stats["total"]
+    extra = ""
+    if stats.get("total_bank_pnl") is not None and total_closed > 0:
+        extra = (
+            f"\n{section('P&L к банку (10%)')}\n"
+            f"{kv('Суммарно', pnl_colored(stats.get('total_bank_pnl', 0)))}\n"
+            f"{kv('Лучшая / Худшая', f'{pnl_colored(stats.get('best_pnl', 0))} / {pnl_colored(stats.get('worst_pnl', 0))}')}\n"
+            f"{kv('Max Drawdown', f'<b>{stats.get('max_drawdown', 0):.1f}%</b>')}"
+        )
     return (
         f"{header('📈 Статистика', f'{total} сигналов всего')}\n"
         f"{section('Результаты')}\n"
@@ -99,6 +107,7 @@ def format_stats(stats: dict) -> str:
         f"{kv('Win Rate', win_rate_bar(stats['win_rate']))}\n"
         f"{kv('Средний P&L', pnl_colored(stats['avg_pnl']))}\n"
         f"{kv('Закрыто', f'<b>{total_closed}</b> сделок')}"
+        f"{extra}"
         f"{footer()}"
     )
 
@@ -166,6 +175,7 @@ def format_dashboard(
         f"{header('🏠 Дашборд', 'Bitcoin Trading')}\n"
         f"{section('Рынок')}\n"
         f"{kv('BTC', f'<b>{money(snap['price'])}</b>  {snap['trend']}')}\n"
+        f"{kv('Режим', snap.get('regime', '—'))}\n"
         f"{kv('RSI', rsi_bar(snap['rsi']))}\n"
         f"{kv('BB', snap.get('bb', '—'))}\n"
         f"{kv('MACD', snap['macd'])}\n"

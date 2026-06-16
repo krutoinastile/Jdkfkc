@@ -85,7 +85,7 @@ async def fetch_candles(symbol: str, interval: str, limit: int = 200) -> list[Ca
 
 
 async def _fetch_candles_single(symbol: str, interval: str, limit: int) -> list[Candle]:
-    fetchers = (_fetch_bybit, _fetch_okx, _fetch_binance)
+    fetchers = (_fetch_okx, _fetch_binance, _fetch_bybit)
     cap = min(limit, 1000)
     async with aiohttp.ClientSession() as session:
         for fetcher in fetchers:
@@ -151,9 +151,9 @@ async def fetch_candles_history(symbol: str, interval: str, limit: int) -> list[
 async def fetch_current_price(symbol: str) -> float:
     async with aiohttp.ClientSession() as session:
         for url, params in (
-            ("https://api.bybit.com/v5/market/tickers", {"category": "spot", "symbol": symbol}),
             ("https://www.okx.com/api/v5/market/ticker", {"instId": symbol.replace("USDT", "-USDT")}),
             ("https://api.binance.com/api/v3/ticker/price", {"symbol": symbol}),
+            ("https://api.bybit.com/v5/market/tickers", {"category": "spot", "symbol": symbol}),
         ):
             try:
                 data = await _get_json(session, url, params)

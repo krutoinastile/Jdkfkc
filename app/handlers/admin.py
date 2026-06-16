@@ -30,21 +30,22 @@ PAGE_SIZE = 10
 
 def strategy_text(cfg) -> str:
     return (
-        "<b>⚙️ Стратегия: BB Squeeze Breakout</b>\n\n"
-        f"Таймфрейм: <b>{cfg.timeframe}</b> (оптимизировано под 1h)\n"
+        "<b>⚙️ Адаптивная стратегия</b>\n\n"
+        f"Таймфрейм: <b>{cfg.timeframe}</b> (рекомендуется 1h)\n"
+        f"Режимы: BB Squeeze · Swing · Mean Reversion (по ADX)\n"
         f"SL: <b>{cfg.atr_sl_mult}×ATR</b> | TP: <b>{cfg.atr_tp_mult}×ATR</b>\n"
         f"Min ADX: <b>{cfg.min_adx}</b> · Сила: <b>{cfg.min_signal_strength}/100</b>\n"
         f"Плечо: <b>{cfg.leverage}x</b>\n"
         f"Лимит: <b>{cfg.max_signals_per_day}</b> сигн/день · пауза <b>{cfg.min_hours_between_signals:.0f}ч</b>\n\n"
-        f"🛡 Trailing SL: breakeven +1R · lock +0.5R +2R · trail 1 ATR +3R\n"
+        f"🛡 Trailing SL: breakeven +1R · lock +0.5R +2R · trail +3R\n"
+        f"🔄 Автоперезапуск: включён (supervisor)\n"
         f"Автоскан: {'✅' if cfg.scanning_enabled else '❌'}\n\n"
         f"<b>Ликвидации</b>\n"
         f"Мониторинг: {'✅' if cfg.liquidations_enabled else '❌'}\n"
         f"Мин. сумма: <b>${cfg.min_liquidation_usd:,.0f}</b>\n\n"
         f"<b>Funding Rate</b>\n"
         f"Алерты: {'✅' if cfg.funding_alerts_enabled else '❌'}\n"
-        f"Порог: <b>{cfg.min_funding_rate_pct:.2f}%</b>\n\n"
-        "<i>Сжатие Bollinger → пробой в сторону тренда EMA55</i>"
+        f"Порог: <b>{cfg.min_funding_rate_pct:.2f}%</b>"
     )
 
 
@@ -164,7 +165,10 @@ async def set_tf(callback: CallbackQuery, session: AsyncSession) -> None:
     elif tf == "1h" and cfg.higher_tf == "15m":
         updates["higher_tf"] = "4h"
     cfg = await update_strategy_settings(session, **updates)
-    await callback.answer(f"TF: {tf}")
+    note = f"TF: {tf}"
+    if tf != "1h":
+        note += " ⚠️ стратегия оптимизирована под 1h"
+    await callback.answer(note, show_alert=tf != "1h")
     if isinstance(callback.message, Message):
         await callback.message.edit_text(strategy_text(cfg), reply_markup=strategy_keyboard(cfg))
 

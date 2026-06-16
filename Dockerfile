@@ -16,8 +16,9 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY app ./app
-RUN mkdir -p /app/data && chown -R appuser:appuser /app
+COPY scripts ./scripts
+RUN mkdir -p /app/data/logs && chown -R appuser:appuser /app && chmod +x /app/scripts/supervise_bot.sh
 
 USER appuser
 
-CMD ["python", "-m", "app.main"]
+CMD ["bash", "scripts/supervise_bot.sh"]
