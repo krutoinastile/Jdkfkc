@@ -16,6 +16,7 @@ from app.database.models import (
     PaymentStatus,
     User,
 )
+from app.utils.datetime_utils import ensure_utc
 
 
 def _now() -> datetime:
@@ -43,9 +44,10 @@ async def update_billing_settings(session: AsyncSession, **fields: object) -> Bi
 
 
 def is_subscription_active(user: User, *, now: datetime | None = None) -> bool:
-    if user.subscription_until is None:
+    until = ensure_utc(user.subscription_until)
+    if until is None:
         return False
-    return user.subscription_until > (now or _now())
+    return until > (now or _now())
 
 
 async def revoke_subscription(session: AsyncSession, user: User) -> User:
@@ -57,7 +59,8 @@ async def revoke_subscription(session: AsyncSession, user: User) -> User:
 
 async def extend_subscription(session: AsyncSession, user: User, days: int) -> User:
     now = _now()
-    base = user.subscription_until if user.subscription_until and user.subscription_until > now else now
+    current = ensure_utc(user.subscription_until)
+    base = current if current and current > now else now
     user.subscription_until = base + timedelta(days=days)
     await session.commit()
     await session.refresh(user)

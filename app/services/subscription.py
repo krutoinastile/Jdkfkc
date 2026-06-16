@@ -27,6 +27,8 @@ from app.database.models import PaymentStatus, User
 from app.database.repositories import get_or_create_user, list_subscribed_users
 from app.services.cryptopay import CryptoPayClient, CryptoPayError
 
+from app.utils.datetime_utils import ensure_utc
+
 logger = logging.getLogger(__name__)
 
 
@@ -204,15 +206,16 @@ async def send_subscription_reminders(session: AsyncSession, bot: Bot) -> None:
     )
     users = list(result.scalars().all())
     for user in users:
-        if user.subscription_until is None:
+        until = ensure_utc(user.subscription_until)
+        if until is None:
             continue
-        days_left = max(0, (user.subscription_until - now).days)
-        until = user.subscription_until.strftime("%d.%m.%Y %H:%M UTC")
+        days_left = max(0, (until - now).days)
+        until_text = until.strftime("%d.%m.%Y %H:%M UTC")
         try:
             await bot.send_message(
                 user.tg_id,
                 f"⏳ <b>Подписка скоро истекает</b>\n\n"
-                f"Осталось: <b>{days_left} дн.</b> (до {until})\n"
+                f"Осталось: <b>{days_left} дн.</b> (до {until_text})\n"
                 f"Продлите в разделе 💎 Подписка, чтобы не пропустить сигналы.",
             )
         except Exception:

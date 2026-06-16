@@ -22,6 +22,7 @@ from app.services.funding_monitor import setup_funding_scheduler
 from app.services.liquidation_monitor import run_liquidation_monitor
 from app.services.subscription import poll_pending_invoices
 from app.services.trade_tracker import setup_scheduler
+from app.utils.error_notify import notify_user_about_error
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +45,10 @@ async def run_bot(settings: Settings) -> None:
         dispatcher["settings"] = settings
 
         @dispatcher.errors()
-        async def on_error(event: ErrorEvent) -> bool:
+        async def on_error(event: ErrorEvent, bot: Bot) -> bool:
             logger.exception("Handler error: %s", event.exception)
+            if event.update is not None:
+                await notify_user_about_error(event.update, bot)
             return True
 
         dispatcher.update.middleware(DbSessionMiddleware(session_pool))
@@ -106,7 +109,12 @@ async def run_bot(settings: Settings) -> None:
         logger.info("Bot online: symbol=%s", settings.symbol)
         try:
             await bot.delete_webhook(drop_pending_updates=True)
-            await dispatcher.start_polling(bot)
+            await dispatcher.start_polling(
+                bot,
+                polling_timeout=30,
+                handle_as_tasks=True,
+                close_bot_session=True,
+            )
         finally:
             if webhook_runner is not None:
                 await webhook_runner.cleanup()
