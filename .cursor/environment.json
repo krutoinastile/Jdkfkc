@@ -1,0 +1,10 @@
+{
+  "name": "BTC Trading Bot",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "bot",
+      "command": "bash .cursor/run-bot.sh"
+    }
+  ]
+}
