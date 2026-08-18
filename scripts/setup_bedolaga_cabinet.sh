@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Configure Bedolaga personal cabinet on the main domain and split services:
-#   CABINET_DOMAIN      -> Bedolaga web cabinet (default: panel.fastervpn.shop)
-#   ADMIN_PANEL_DOMAIN  -> Remnawave admin UI (default: admin.fastervpn.shop)
+#   CABINET_DOMAIN      -> Bedolaga web cabinet (default: fastervpn.shop)
+#   ADMIN_PANEL_DOMAIN  -> Remnawave admin UI (default: panel.fastervpn.shop)
 #   SUB_PUBLIC_DOMAIN   -> Remnawave subscription page (default: sub.fastervpn.shop)
 #
 # Run on the VPS as root after Remnawave + Bedolaga bot are installed.
 
 set -euo pipefail
 
-CABINET_DOMAIN="${CABINET_DOMAIN:-panel.fastervpn.shop}"
-ADMIN_PANEL_DOMAIN="${ADMIN_PANEL_DOMAIN:-admin.fastervpn.shop}"
+CABINET_DOMAIN="${CABINET_DOMAIN:-fastervpn.shop}"
+ADMIN_PANEL_DOMAIN="${ADMIN_PANEL_DOMAIN:-panel.fastervpn.shop}"
 SUB_PUBLIC_DOMAIN="${SUB_PUBLIC_DOMAIN:-sub.fastervpn.shop}"
 BOT_DIR="${BOT_DIR:-/root/remnawave-bedolaga-telegram-bot}"
 CADDY_DIR="${CADDY_DIR:-/opt/remnawave/caddy}"
@@ -50,7 +50,7 @@ set_env CABINET_ALLOWED_ORIGINS "https://${CABINET_DOMAIN}"
 set_env CABINET_EMAIL_AUTH_ENABLED true
 
 if grep -q '^REMNAWAVE_API_URL=' "$ENV_FILE"; then
-  sed -i "s|^REMNAWAVE_API_URL=.*|REMNAWAVE_API_URL=https://${ADMIN_PANEL_DOMAIN}|" "$ENV_FILE"
+  sed -i "s|^REMNAWAVE_API_URL=.*|REMNAWAVE_API_URL=http://remnawave:3000|" "$ENV_FILE"
 fi
 
 echo "==> Pull Bedolaga cabinet frontend"

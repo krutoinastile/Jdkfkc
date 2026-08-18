@@ -4,19 +4,19 @@
 #       https://docs.rw/install/remnawave-panel/
 #
 # Required env:
-#   CABINET_DOMAIN=panel.fastervpn.shop   (main domain = Bedolaga personal cabinet)
+#   CABINET_DOMAIN=fastervpn.shop   (main domain = Bedolaga personal cabinet)
 #   BOT_TOKEN=...                       (from @BotFather)
 #   ADMIN_IDS=123456789                   (Telegram user id)
 # Optional:
-#   ADMIN_PANEL_DOMAIN=admin.fastervpn.shop  (Remnawave admin UI)
+#   ADMIN_PANEL_DOMAIN=panel.fastervpn.shop  (Remnawave admin UI)
 #   SUB_PUBLIC_DOMAIN=sub.fastervpn.shop     (subscription links)
 #   REMNAWAVE_API_KEY=...                    (if already created in panel)
 #   INSTALL_DIR=/root/remnawave-bedolaga-telegram-bot
 
 set -euo pipefail
 
-CABINET_DOMAIN="${CABINET_DOMAIN:-panel.fastervpn.shop}"
-ADMIN_PANEL_DOMAIN="${ADMIN_PANEL_DOMAIN:-admin.fastervpn.shop}"
+CABINET_DOMAIN="${CABINET_DOMAIN:-fastervpn.shop}"
+ADMIN_PANEL_DOMAIN="${ADMIN_PANEL_DOMAIN:-panel.fastervpn.shop}"
 SUB_PUBLIC_DOMAIN="${SUB_PUBLIC_DOMAIN:-sub.fastervpn.shop}"
 INSTALL_DIR="${INSTALL_DIR:-/root/remnawave-bedolaga-telegram-bot}"
 REMNAWAVE_DIR="${REMNAWAVE_DIR:-/opt/remnawave}"
@@ -143,7 +143,7 @@ fi
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -hex 16)}"
 sed -i "s|^BOT_TOKEN=.*|BOT_TOKEN=${BOT_TOKEN}|" .env
 sed -i "s|^ADMIN_IDS=.*|ADMIN_IDS=${ADMIN_IDS}|" .env
-sed -i "s|^REMNAWAVE_API_URL=.*|REMNAWAVE_API_URL=https://${ADMIN_PANEL_DOMAIN}|" .env
+sed -i "s|^REMNAWAVE_API_URL=.*|REMNAWAVE_API_URL=http://remnawave:3000|" .env
 CABINET_JWT="$(openssl rand -hex 32)"
 sed -i "s|^CABINET_ENABLED=.*|CABINET_ENABLED=true|" .env || echo "CABINET_ENABLED=true" >> .env
 sed -i "s|^CABINET_URL=.*|CABINET_URL=https://${CABINET_DOMAIN}|" .env || echo "CABINET_URL=https://${CABINET_DOMAIN}" >> .env

@@ -5,8 +5,8 @@
 #   https://docs.rw/install/subscription-page/bundled/
 #
 # Domains (defaults):
-#   panel.fastervpn.shop  -> Bedolaga personal cabinet (main)
-#   admin.fastervpn.shop  -> Remnawave admin panel
+#   fastervpn.shop        -> Bedolaga personal cabinet (main)
+#   panel.fastervpn.shop  -> Remnawave admin panel
 #   sub.fastervpn.shop    -> Remnawave subscription page
 #
 # Required:
@@ -17,8 +17,8 @@
 
 set -euo pipefail
 
-CABINET_DOMAIN="${CABINET_DOMAIN:-panel.fastervpn.shop}"
-ADMIN_PANEL_DOMAIN="${ADMIN_PANEL_DOMAIN:-admin.fastervpn.shop}"
+CABINET_DOMAIN="${CABINET_DOMAIN:-fastervpn.shop}"
+ADMIN_PANEL_DOMAIN="${ADMIN_PANEL_DOMAIN:-panel.fastervpn.shop}"
 SUB_PUBLIC_DOMAIN="${SUB_PUBLIC_DOMAIN:-sub.fastervpn.shop}"
 BOT_DIR="${BOT_DIR:-/root/remnawave-bedolaga-telegram-bot}"
 REMNAWAVE_DIR="${REMNAWAVE_DIR:-/opt/remnawave}"
@@ -204,7 +204,7 @@ set_kv ADMIN_IDS "$ADMIN_IDS"
 set_kv BOT_RUN_MODE polling
 set_kv WEB_API_ENABLED true
 set_kv POSTGRES_PASSWORD "$PG_PASS"
-set_kv REMNAWAVE_API_URL "https://${ADMIN_PANEL_DOMAIN}"
+set_kv REMNAWAVE_API_URL "http://remnawave:3000"
 set_kv REMNAWAVE_AUTH_TYPE api_key
 if [[ -n "${REMNAWAVE_API_KEY:-}" ]]; then
   set_kv REMNAWAVE_API_KEY "$REMNAWAVE_API_KEY"
