@@ -219,6 +219,19 @@ set_kv CABINET_JWT_SECRET "$JWT_SECRET"
 set_kv CABINET_ALLOWED_ORIGINS "https://${CABINET_DOMAIN}"
 set_kv CABINET_EMAIL_AUTH_ENABLED true
 
+# Trial / simple subscription: assign Default-Squad so new users get servers
+if [[ -n "${ADMIN_JWT:-}" ]]; then
+  DEFAULT_SQUAD_UUID=$(curl -sk --max-time 15 \
+    -H "Authorization: Bearer ${ADMIN_JWT}" \
+    "${HDR[@]}" \
+    http://127.0.0.1:3000/api/internal-squads \
+    | jq -r '.response.internalSquads[0].uuid // empty' || true)
+  if [[ -n "$DEFAULT_SQUAD_UUID" ]]; then
+    set_kv SIMPLE_SUBSCRIPTION_SQUAD_UUID "$DEFAULT_SQUAD_UUID"
+    log "Trial squad: ${DEFAULT_SQUAD_UUID}"
+  fi
+fi
+
 make up
 
 log "==> Cabinet frontend"
@@ -309,6 +322,17 @@ docker exec caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || dock
 
 cd "$BOT_DIR"
 docker compose restart bot
+
+log "==> Post-install: link trial squad in bot DB (if squad UUID known)"
+if [[ -n "${DEFAULT_SQUAD_UUID:-}" ]]; then
+  sleep 5
+  docker exec -e PGPASSWORD="$PG_PASS" remnawave_bot_db psql -U remnawave_user -d remnawave_bot -c \
+    "UPDATE tariffs SET allowed_squads = '[\"${DEFAULT_SQUAD_UUID}\"]'::jsonb WHERE allowed_squads = '[]'::jsonb OR allowed_squads IS NULL;" \
+    2>/dev/null || true
+  docker exec -e PGPASSWORD="$PG_PASS" remnawave_bot_db psql -U remnawave_user -d remnawave_bot -c \
+    "UPDATE server_squads SET is_available=true, is_trial_eligible=true WHERE squad_uuid='${DEFAULT_SQUAD_UUID}';" \
+    2>/dev/null || true
+fi
 
 log "==> Health checks"
 sleep 8
