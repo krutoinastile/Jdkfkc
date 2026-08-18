@@ -62,7 +62,7 @@ sed -i "s|^SUB_PUBLIC_DOMAIN=.*|SUB_PUBLIC_DOMAIN=${SUB_PUBLIC_DOMAIN}|" .env
 docker compose up -d
 log "Waiting for Remnawave health..."
 for _ in $(seq 1 40); do
-  curl -fsS http://127.0.0.1:3001/health >/dev/null 2>&1 && break
+  curl -fsS --max-time 5 http://127.0.0.1:3001/health >/dev/null 2>&1 && break
   sleep 3
 done
 
@@ -70,7 +70,7 @@ log "==> Remnawave admin (if missing)"
 ADMIN_FILE="/root/remnawave-admin-credentials.txt"
 if [[ ! -f "$ADMIN_FILE" ]]; then
   ADMIN_PASS="Rw$(openssl rand -hex 10)Aa1"
-  REG=$(curl -sk -X POST http://127.0.0.1:3000/api/auth/register \
+  REG=$(curl -sk --max-time 20 -X POST http://127.0.0.1:3000/api/auth/register \
     -H 'Content-Type: application/json' \
     -H 'Host: '"${ADMIN_PANEL_DOMAIN}" \
     -H 'X-Forwarded-Proto: https' \
@@ -87,25 +87,25 @@ log "==> API tokens for subscription page + bot"
 ADMIN_PASS=$(grep Password "$ADMIN_FILE" 2>/dev/null | awk '{print $2}' || true)
 ADMIN_JWT=""
 if [[ -n "$ADMIN_PASS" ]]; then
-  ADMIN_JWT=$(curl -sk -X POST http://127.0.0.1:3000/api/auth/login \
+  ADMIN_JWT=$(curl -sk --max-time 20 -X POST http://127.0.0.1:3000/api/auth/login \
     -H 'Content-Type: application/json' \
     -H 'Host: '"${ADMIN_PANEL_DOMAIN}" \
     -H 'X-Forwarded-Proto: https' \
     -H 'X-Forwarded-For: 127.0.0.1' \
     -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASS}\"}" \
-    | jq -r '.response.accessToken // empty')
+    | jq -r '.response.accessToken // empty' || true)
 fi
 
 HDR=(-H "Host: ${ADMIN_PANEL_DOMAIN}" -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-For: 127.0.0.1')
 
 create_token() {
   local name="$1"
-  curl -sk -X POST http://127.0.0.1:3000/api/tokens \
+  curl -sk --max-time 20 -X POST http://127.0.0.1:3000/api/tokens \
     -H "Authorization: Bearer ${ADMIN_JWT}" \
     -H 'Content-Type: application/json' \
     "${HDR[@]}" \
     -d "{\"tokenName\":\"${name}\",\"scopes\":[\"*\"]}" \
-    | jq -r '.response.token // empty'
+    | jq -r '.response.token // empty' || true
 }
 
 SUB_TOKEN=""
@@ -139,15 +139,17 @@ networks:
 YAML
 fi
 
-if [[ -n "$SUB_TOKEN" ]]; then
+if [[ ! -f "$SUB_DIR/.env" ]]; then
   cat > "$SUB_DIR/.env" <<ENV
 APP_PORT=3010
 REMNAWAVE_PANEL_URL=http://remnawave:3000
-REMNAWAVE_API_TOKEN=${SUB_TOKEN}
+REMNAWAVE_API_TOKEN=${SUB_TOKEN:-}
 CUSTOM_SUB_PREFIX=
 MARZBAN_LEGACY_LINK_ENABLED=false
 TRUST_PROXY=1
 ENV
+elif [[ -n "$SUB_TOKEN" ]]; then
+  sed -i "s|^REMNAWAVE_API_TOKEN=.*|REMNAWAVE_API_TOKEN=${SUB_TOKEN}|" "$SUB_DIR/.env"
 fi
 
 cd "$SUB_DIR"
@@ -180,15 +182,18 @@ for line in lines:
     k, v = s.split("=", 1)
     v = v.strip()
     if re.search(r"[<>]|your_|example\.com|changeme|TODO|REPLACE", v, re.I):
-        out.append(f"{k}=")
+        continue  # drop placeholders so pydantic defaults apply
     elif v.startswith("#") or " #" in v:
-        out.append(f"{k}=")
+        continue
+    elif v.strip() == "":
+        continue
     else:
         out.append(line)
 p.write_text("\n".join(out) + "\n")
 PY
 
-PG_PASS="${POSTGRES_PASSWORD:-$(openssl rand -hex 16)}"
+EXISTING_PG=$(grep '^POSTGRES_PASSWORD=' .env 2>/dev/null | cut -d= -f2- || true)
+PG_PASS="${POSTGRES_PASSWORD:-${EXISTING_PG:-$(openssl rand -hex 16)}}"
 set_kv() {
   local k="$1" v="$2"
   if grep -q "^${k}=" .env; then sed -i "s|^${k}=.*|${k}=${v}|" .env; else echo "${k}=${v}" >> .env; fi
@@ -197,6 +202,7 @@ set_kv() {
 set_kv BOT_TOKEN "$BOT_TOKEN"
 set_kv ADMIN_IDS "$ADMIN_IDS"
 set_kv BOT_RUN_MODE polling
+set_kv WEB_API_ENABLED true
 set_kv POSTGRES_PASSWORD "$PG_PASS"
 set_kv REMNAWAVE_API_URL "https://${ADMIN_PANEL_DOMAIN}"
 set_kv REMNAWAVE_AUTH_TYPE api_key
@@ -309,9 +315,9 @@ sleep 8
 docker ps --format 'table {{.Names}}\t{{.Status}}' | head -20
 
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-curl -sk -o /dev/null -w "cabinet: %{http_code}\n" -A "$UA" "https://${CABINET_DOMAIN}/" || true
-curl -sk -o /dev/null -w "cabinet api: %{http_code}\n" "https://${CABINET_DOMAIN}/api/health" || true
-curl -sk -o /dev/null -w "admin panel: %{http_code}\n" "https://${ADMIN_PANEL_DOMAIN}/" || true
+curl -sk --max-time 20 -o /dev/null -w "cabinet: %{http_code}\n" -A "$UA" "https://${CABINET_DOMAIN}/" || true
+curl -sk --max-time 20 -o /dev/null -w "cabinet api: %{http_code}\n" "https://${CABINET_DOMAIN}/api/health" || true
+curl -sk --max-time 20 -o /dev/null -w "admin panel: %{http_code}\n" "https://${ADMIN_PANEL_DOMAIN}/" || true
 
 log "Done."
 echo "Cabinet:  https://${CABINET_DOMAIN}"
