@@ -1,0 +1,319 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════════════
+//  LARGE LIMIT ORDERS · ПЛИТЫ И АЙСБЕРГИ [RU]
+//  Детектор следов крупных лимитных заявок по объёму и поглощению.
+//
+//  ВАЖНО: Pine Script не имеет доступа к стакану (L2 / DOM), поэтому увидеть
+//  сами заявки невозможно. Индикатор находит их отпечаток в ленте: бары, где
+//  прошёл аномальный объём, но цена почти не сдвинулась — значит рыночные
+//  ордера ушли в чей-то лимитный массив. Такой уровень отмечается как «плита»,
+//  а если его наполняют повторно — как «айсберг».
+// ═══════════════════════════════════════════════════════════════════════════════
+indicator(title = "Large Limit Orders · Плиты и айсберги [RU]", shorttitle = "Плиты", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 1000)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ГРУППЫ НАСТРОЕК
+// ─────────────────────────────────────────────────────────────────────────────
+const string G_DET = "① Обнаружение"
+const string G_LVL = "② Уровни"
+const string G_TBL = "③ Панель"
+const string G_COL = "④ Стиль и подписи"
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ВХОДЫ · ОБНАРУЖЕНИЕ
+// ─────────────────────────────────────────────────────────────────────────────
+bool   useLtf   = input.bool(true, "Уточнять уровень по младшему ТФ",        group = G_DET)
+string ltf      = input.timeframe("5", "Младший таймфрейм",                  group = G_DET)
+float  absMin   = input.float(2.0,  "Порог поглощения (× среднего)",         minval = 1.0, maxval = 20.0, step = 0.1, group = G_DET)
+float  volMult  = input.float(1.6,  "Мин. объём бара (× среднего)",          minval = 1.0, maxval = 10.0, step = 0.1, group = G_DET)
+float  maxRng   = input.float(0.9,  "Макс. размер бара (× ATR)",             minval = 0.1, maxval = 3.0,  step = 0.05, group = G_DET)
+int    avgLen   = input.int(50,     "Период средних",                        minval = 5,   maxval = 500,  group = G_DET)
+bool   markBar  = input.bool(true,  "Метить бары поглощения",                group = G_DET)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ВХОДЫ · УРОВНИ
+// ─────────────────────────────────────────────────────────────────────────────
+float  mergeTol  = input.float(0.25, "Объединять уровни ближе (× ATR)",      minval = 0.02, maxval = 2.0, step = 0.01, group = G_LVL)
+float  padAtr    = input.float(0.07, "Толщина плиты (× ATR)",                minval = 0.01, maxval = 1.0, step = 0.01, group = G_LVL)
+int    iceMin    = input.int(3,      "Айсберг от N тестов",                  minval = 2, maxval = 20, group = G_LVL)
+int    maxWalls  = input.int(20,     "Макс. плит на графике",                minval = 2, maxval = 60, group = G_LVL)
+int    extBars   = input.int(12,     "Продление вправо (баров)",             minval = 1, maxval = 200, group = G_LVL)
+bool   delBroken = input.bool(false, "Удалять пробитые плиты",               group = G_LVL)
+float  farAtr    = input.float(8.0,  "Забывать плиту дальше (× ATR)",        minval = 1.0, maxval = 50.0, step = 0.5, group = G_LVL)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ВХОДЫ · ПАНЕЛЬ
+// ─────────────────────────────────────────────────────────────────────────────
+bool   showTbl = input.bool(true, "Показывать панель ближайших плит",         group = G_TBL)
+int    tblRows = input.int(5,     "Сколько уровней в панели",                 minval = 1, maxval = 15, group = G_TBL)
+string tblPos  = input.string("Справа сверху", "Положение панели", options = ["Справа сверху", "Справа снизу", "Слева сверху", "Слева снизу", "Справа по центру"], group = G_TBL)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ВХОДЫ · СТИЛЬ И ПОДПИСИ
+// ─────────────────────────────────────────────────────────────────────────────
+string txtBid    = input.string("ПЛИТА BID", "Подпись плиты покупателей",     group = G_COL)
+string txtAsk    = input.string("ПЛИТА ASK", "Подпись плиты продавцов",       group = G_COL)
+string txtIce    = input.string("АЙСБЕРГ",   "Подпись айсберга",              group = G_COL)
+string txtBroken = input.string("ПРОБИТА",   "Подпись пробитой плиты",        group = G_COL)
+color  cBid      = input.color(#26a69a, "Плита покупателей",  group = G_COL, inline = "c1")
+color  cAsk      = input.color(#ef5350, "Плита продавцов",    group = G_COL, inline = "c1")
+color  cIce      = input.color(#ffa726, "Айсберг",            group = G_COL, inline = "c2")
+color  cBroke    = input.color(#b2b5be, "Пробитая",           group = G_COL, inline = "c2")
+color  cTblBg    = input.color(#ffffff, "Фон панели",         group = G_COL, inline = "c3")
+color  cTblFr    = input.color(#d1d4dc, "Рамка панели",       group = G_COL, inline = "c3")
+color  cTblTx    = input.color(#131722, "Текст панели",       group = G_COL, inline = "c3")
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ХЕЛПЕРЫ
+// ─────────────────────────────────────────────────────────────────────────────
+fmtVol(float v) =>
+    string s = ""
+    if not na(v)
+        if v >= 1e9
+            s := str.tostring(v / 1e9, "#.##") + "B"
+        else if v >= 1e6
+            s := str.tostring(v / 1e6, "#.##") + "M"
+        else if v >= 1e3
+            s := str.tostring(v / 1e3, "#.##") + "K"
+        else
+            s := str.tostring(v, "#.#")
+    s
+
+string tblAt = tblPos == "Справа снизу" ? position.bottom_right : tblPos == "Слева сверху" ? position.top_left : tblPos == "Слева снизу" ? position.bottom_left : tblPos == "Справа по центру" ? position.middle_right : position.top_right
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  МЕТРИКИ ПОГЛОЩЕНИЯ
+//  absNow — объём на единицу пройденной цены. Высокое значение = много сделок
+//  при малом смещении, то есть рыночные ордера съедаются лимитным массивом.
+// ─────────────────────────────────────────────────────────────────────────────
+float atr    = ta.atr(14)
+float rng    = math.max(high - low, syminfo.mintick)
+float absNow = volume / rng
+float absAvg = ta.sma(absNow, avgLen)
+float volAvg = ta.sma(volume, avgLen)
+
+float absScore = na(absAvg) or absAvg <= 0 ? 0.0 : absNow / absAvg
+bool  bigVol   = not na(volAvg) and volAvg > 0 and volume >= volAvg * volMult
+bool  tightBar = not na(atr) and atr > 0 and rng <= atr * maxRng
+bool  absorb   = bigVol and tightBar and absScore >= absMin
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ТОЧКА КОНЦЕНТРАЦИИ ОБЪЁМА ВНУТРИ БАРА (по младшему ТФ)
+// ─────────────────────────────────────────────────────────────────────────────
+// Младший ТФ должен быть не выше текущего, иначе запрос вернёт na
+int  ltfSec = timeframe.in_seconds(ltf)
+int  tfSec  = timeframe.in_seconds(timeframe.period)
+bool ltfOk  = useLtf and ltfSec > 0 and ltfSec <= tfSec
+
+array<float> aVol = request.security_lower_tf(syminfo.tickerid, ltf, volume, ignore_invalid_timeframe = true)
+array<float> aMid = request.security_lower_tf(syminfo.tickerid, ltf, hl2, ignore_invalid_timeframe = true)
+
+float poc = na
+if ltfOk
+    int nVol = array.size(aVol)
+    int nMid = array.size(aMid)
+    if nVol > 0 and nMid == nVol
+        float bestV = 0.0
+        int   bestI = -1
+        for i = 0 to nVol - 1
+            float v = nz(array.get(aVol, i))
+            if v > bestV
+                bestV := v
+                bestI := i
+        if bestI >= 0
+            poc := array.get(aMid, bestI)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  СТОРОНА И ЦЕНА ПЛИТЫ
+//  Закрытие в верхней части бара = продавцов поглотили снизу → плита BID.
+//  Закрытие в нижней части = покупателей поглотили сверху → плита ASK.
+// ─────────────────────────────────────────────────────────────────────────────
+float closePos = (close - low) / rng
+float barMid   = hl2
+
+int   newSide = 0
+float newLvl  = na
+
+if absorb
+    newSide := closePos >= 0.55 ? 1 : closePos <= 0.45 ? -1 : (not na(poc) and poc < barMid ? 1 : -1)
+    bool pocOk = not na(poc) and ((newSide == 1 and poc <= barMid) or (newSide == -1 and poc >= barMid))
+    newLvl := pocOk ? poc : (newSide == 1 ? low + rng * 0.15 : high - rng * 0.15)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ТИП ПЛИТЫ
+// ─────────────────────────────────────────────────────────────────────────────
+type Wall
+    box   bx
+    line  ln
+    label tag
+    label bdg
+    float price
+    float pad
+    int   side      // 1 = BID (поддержка), -1 = ASK (сопротивление)
+    float vol       // объём, поглощённый на уровне
+    int   tests     // сколько раз уровень тестировали
+    int   t0
+    bool  ice
+    bool  broken
+    bool  dead
+
+var array<Wall> walls = array.new<Wall>()
+
+wallColor(Wall w) =>
+    color c = w.broken ? cBroke : w.ice ? cIce : (w.side > 0 ? cBid : cAsk)
+    c
+
+wallText(Wall w) =>
+    string nm = w.ice ? txtIce + (w.side > 0 ? " BID" : " ASK") : (w.side > 0 ? txtBid : txtAsk)
+    string s  = nm + (w.tests > 1 ? " ×" + str.tostring(w.tests) : "")
+    s := s + (w.broken ? " · " + txtBroken : "")
+    s
+
+int msBar  = timeframe.in_seconds(timeframe.period) * 1000
+int rightT = time + extBars * msBar
+
+// Создание новой плиты либо усиление существующей на том же уровне
+addWall(array<Wall> arr, int side, float price, float vol, float pad, float tol) =>
+    bool merged = false
+    int  cnt    = array.size(arr)
+    if cnt > 0 and not na(price)
+        for i = 0 to cnt - 1
+            Wall w = array.get(arr, i)
+            if not w.dead and not w.broken and w.side == side and math.abs(w.price - price) <= tol
+                float sum = w.vol + vol
+                w.price := sum > 0 ? (w.price * w.vol + price * vol) / sum : price
+                w.vol   := sum
+                w.tests := w.tests + 1
+                w.ice   := w.tests >= iceMin
+                merged  := true
+                break
+    if not merged and not na(price)
+        color c = side > 0 ? cBid : cAsk
+        box   b = box.new(time, price + pad, rightT, price - pad, xloc = xloc.bar_time, border_color = color.new(c, 35), border_width = 1, border_style = line.style_solid, bgcolor = color.new(c, 82))
+        line  l = line.new(time, price, rightT, price, xloc = xloc.bar_time, color = color.new(c, 10), style = line.style_solid, width = 2)
+        label t = label.new(rightT, price + pad, "", xloc = xloc.bar_time, yloc = yloc.price, style = label.style_none, textcolor = c, size = size.tiny, color = color.new(color.white, 100))
+        label d = label.new(rightT, price, "", xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, textcolor = color.white, size = size.tiny, color = c)
+        array.push(arr, Wall.new(bx = b, ln = l, tag = t, bdg = d, price = price, pad = pad, side = side, vol = vol, tests = 1, t0 = time, ice = false, broken = false, dead = false))
+        if array.size(arr) > maxWalls
+            Wall old = array.shift(arr)
+            box.delete(old.bx)
+            line.delete(old.ln)
+            label.delete(old.tag)
+            label.delete(old.bdg)
+    merged
+
+float pad = math.max(nz(atr) * padAtr, syminfo.mintick * 2)
+float tol = nz(atr) * mergeTol
+
+if absorb and newSide != 0
+    addWall(walls, newSide, newLvl, volume, pad, tol)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ОБНОВЛЕНИЕ ПЛИТ: тесты, айсберги, пробои, подписи
+// ─────────────────────────────────────────────────────────────────────────────
+bool sigTest   = false
+bool sigIce    = false
+bool sigBroken = false
+
+int cntW = array.size(walls)
+if cntW > 0
+    for i = cntW - 1 to 0
+        Wall w = array.get(walls, i)
+        bool wasIce = w.ice
+        if not w.dead and not w.broken
+            bool touch = high >= w.price - w.pad and low <= w.price + w.pad
+            if touch and not absorb
+                w.tests := w.tests + 1
+                w.vol   := w.vol + volume
+                w.ice   := w.tests >= iceMin
+                sigTest := true
+            if not wasIce and w.ice
+                sigIce := true
+            bool through = w.side > 0 ? close < w.price - w.pad : close > w.price + w.pad
+            if through
+                w.broken  := true
+                sigBroken := true
+            if not na(atr) and atr > 0 and math.abs(close - w.price) > atr * farAtr
+                w.dead := true
+        if w.broken and delBroken
+            w.dead := true
+        if w.dead
+            box.delete(w.bx)
+            line.delete(w.ln)
+            label.delete(w.tag)
+            label.delete(w.bdg)
+            array.remove(walls, i)
+        else
+            color c = wallColor(w)
+            box.set_right(w.bx, rightT)
+            box.set_top(w.bx, w.price + w.pad)
+            box.set_bottom(w.bx, w.price - w.pad)
+            box.set_bgcolor(w.bx, color.new(c, w.broken ? 92 : 82))
+            box.set_border_color(w.bx, color.new(c, w.broken ? 65 : 35))
+            line.set_xy1(w.ln, w.t0, w.price)
+            line.set_xy2(w.ln, rightT, w.price)
+            line.set_color(w.ln, color.new(c, w.broken ? 55 : 10))
+            line.set_style(w.ln, w.broken ? line.style_dashed : line.style_solid)
+            label.set_xy(w.tag, rightT, w.price + w.pad)
+            label.set_text(w.tag, wallText(w))
+            label.set_textcolor(w.tag, c)
+            label.set_xy(w.bdg, rightT + msBar, w.price)
+            label.set_text(w.bdg, fmtVol(w.vol))
+            label.set_color(w.bdg, c)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  МЕТКИ БАРОВ ПОГЛОЩЕНИЯ
+// ─────────────────────────────────────────────────────────────────────────────
+plotshape(markBar and absorb and closePos >= 0.5, "Поглощение снизу", style = shape.diamond, location = location.belowbar, color = cBid, size = size.tiny)
+plotshape(markBar and absorb and closePos < 0.5,  "Поглощение сверху", style = shape.diamond, location = location.abovebar, color = cAsk, size = size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ПАНЕЛЬ БЛИЖАЙШИХ ПЛИТ
+// ─────────────────────────────────────────────────────────────────────────────
+var table tbl = na
+
+if showTbl and barstate.islast
+    if na(tbl)
+        tbl := table.new(tblAt, 5, tblRows + 1, bgcolor = cTblBg, frame_color = cTblFr, frame_width = 1, border_color = cTblFr, border_width = 1)
+    table.cell(tbl, 0, 0, "Сторона", text_color = cTblTx, text_size = size.tiny, bgcolor = color.new(cTblFr, 55))
+    table.cell(tbl, 1, 0, "Цена",    text_color = cTblTx, text_size = size.tiny, bgcolor = color.new(cTblFr, 55))
+    table.cell(tbl, 2, 0, "Объём",   text_color = cTblTx, text_size = size.tiny, bgcolor = color.new(cTblFr, 55))
+    table.cell(tbl, 3, 0, "Тестов",  text_color = cTblTx, text_size = size.tiny, bgcolor = color.new(cTblFr, 55))
+    table.cell(tbl, 4, 0, "До неё",  text_color = cTblTx, text_size = size.tiny, bgcolor = color.new(cTblFr, 55))
+
+    array<int> used = array.new<int>()
+    int total = array.size(walls)
+    for r = 1 to tblRows
+        float bestD = na
+        int   bestI = -1
+        if total > 0
+            for i = 0 to total - 1
+                Wall w = array.get(walls, i)
+                if not w.dead and not w.broken and not array.includes(used, i)
+                    float d = math.abs(w.price - close)
+                    if na(bestD) or d < bestD
+                        bestD := d
+                        bestI := i
+        if bestI >= 0
+            array.push(used, bestI)
+            Wall wn = array.get(walls, bestI)
+            color cn = wallColor(wn)
+            table.cell(tbl, 0, r, (wn.side > 0 ? "BID" : "ASK") + (wn.ice ? " ❄" : ""), text_color = cn, text_size = size.tiny)
+            table.cell(tbl, 1, r, str.tostring(wn.price, format.mintick), text_color = cTblTx, text_size = size.tiny)
+            table.cell(tbl, 2, r, fmtVol(wn.vol), text_color = cTblTx, text_size = size.tiny)
+            table.cell(tbl, 3, r, str.tostring(wn.tests), text_color = cTblTx, text_size = size.tiny)
+            table.cell(tbl, 4, r, str.tostring((wn.price - close) / close * 100.0, "#.##") + " %", text_color = cTblTx, text_size = size.tiny)
+        else
+            table.cell(tbl, 0, r, "—", text_color = cTblTx, text_size = size.tiny)
+            table.cell(tbl, 1, r, "", text_size = size.tiny)
+            table.cell(tbl, 2, r, "", text_size = size.tiny)
+            table.cell(tbl, 3, r, "", text_size = size.tiny)
+            table.cell(tbl, 4, r, "", text_size = size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  АЛЕРТЫ
+// ─────────────────────────────────────────────────────────────────────────────
+alertcondition(absorb, "Поглощение объёма", "Плиты: аномальный объём при малом движении цены")
+alertcondition(sigTest, "Тест плиты", "Плиты: цена тестирует уровень крупных лимиток")
+alertcondition(sigIce, "Айсберг", "Плиты: уровень наполняют повторно — айсберг")
+alertcondition(sigBroken, "Плита пробита", "Плиты: уровень крупных лимиток пробит")
