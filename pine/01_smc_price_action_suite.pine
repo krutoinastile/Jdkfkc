@@ -1,0 +1,830 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SMC PRICE ACTION SUITE [RU]  ·  главный индикатор (overlay)
+//  Supply / Demand (Order Blocks) со звёздным рейтингом, множителем ×N и меткой
+//  ЛИМИТКА · FVG / iFVG с бейджами объёма · CHoCH / BOS (свинг + внутренняя
+//  структура) · ликвидность EQH / EQL · дилинг-рейндж (Premium / Discount) ·
+//  тренд-лента · регрессионный канал · маркеры «СЕГОДНЯ» и риск-событий ·
+//  ключевые уровни с ценовыми плашками · инфо-панель.
+// ═══════════════════════════════════════════════════════════════════════════════
+indicator(title = "SMC Price Action Suite [RU]", shorttitle = "SMC Suite", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 1000)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  0. ГРУППЫ НАСТРОЕК
+// ─────────────────────────────────────────────────────────────────────────────
+const string G_STR   = "① Структура · CHoCH / BOS"
+const string G_ZONE  = "② Зоны Supply / Demand"
+const string G_FVG   = "③ FVG / iFVG"
+const string G_LIQ   = "④ Ликвидность · EQH / EQL"
+const string G_RNG   = "⑤ Дилинг-рейндж · Premium / Discount"
+const string G_LVL   = "⑥ Ключевые уровни"
+const string G_TRND  = "⑦ Тренд-лента и канал"
+const string G_NEWS  = "⑧ Сессии · Новости · Риск"
+const string G_PNL   = "⑨ Инфо-панель"
+const string G_COL   = "⑩ Цвета и стиль"
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  1. ВХОДЫ · СТРУКТУРА
+// ─────────────────────────────────────────────────────────────────────────────
+bool   showStruct = input.bool(true,  "Показывать структуру (свинг)",        group = G_STR)
+bool   showInt    = input.bool(true,  "Показывать внутреннюю структуру",     group = G_STR)
+int    swLen      = input.int(14,     "Свинг · длина пивота",                minval = 2, maxval = 100, group = G_STR)
+int    inLen      = input.int(5,      "Внутренняя · длина пивота",           minval = 1, maxval = 50,  group = G_STR)
+string txtChoCh   = input.string("CHoCH",   "Текст CHoCH (свинг)",           group = G_STR)
+string txtBos     = input.string("BOS",     "Текст BOS (свинг)",             group = G_STR)
+string txtChoChI  = input.string("i ChoCh", "Текст CHoCH (внутренняя)",      group = G_STR)
+string txtBosI    = input.string("i BOS",   "Текст BOS (внутренняя)",        group = G_STR)
+int    maxStruct  = input.int(14,     "Макс. отметок структуры",             minval = 1, maxval = 60,  group = G_STR)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  2. ВХОДЫ · ЗОНЫ SUPPLY / DEMAND
+// ─────────────────────────────────────────────────────────────────────────────
+bool   showObTf   = input.bool(true,  "Зоны текущего таймфрейма",            group = G_ZONE)
+bool   showObHtf  = input.bool(true,  "Зоны старшего таймфрейма",            group = G_ZONE)
+string obHtf      = input.timeframe("1D", "Старший таймфрейм зон",           group = G_ZONE)
+int    obLen      = input.int(8,      "Длина пивота для зон",                minval = 2, maxval = 60, group = G_ZONE)
+int    obLook     = input.int(20,     "Поиск свечи-основания (баров)",       minval = 1, maxval = 80, group = G_ZONE)
+int    volLen     = input.int(50,     "Период среднего объёма",              minval = 5, maxval = 300, group = G_ZONE)
+int    maxAreas   = input.int(28,     "Макс. зон на графике",                minval = 2, maxval = 60, group = G_ZONE)
+bool   delMitig   = input.bool(true,  "Удалять отработанные зоны",           group = G_ZONE)
+bool   showBadge  = input.bool(true,  "Бейдж объёма на зоне",                group = G_ZONE)
+bool   showLimit  = input.bool(true,  "Метка «ЛИМИТКА» на свежих зонах",     group = G_ZONE)
+int    limScore   = input.int(3,      "«ЛИМИТКА» от рейтинга (★)",           minval = 1, maxval = 5, group = G_ZONE)
+string txtLimit   = input.string("ЛИМИТКА", "Текст метки лимитного ордера",  group = G_ZONE)
+int    extBars    = input.int(10,     "Продление зон вправо (баров)",        minval = 0, maxval = 200, group = G_ZONE)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  3. ВХОДЫ · FVG / iFVG
+// ─────────────────────────────────────────────────────────────────────────────
+bool   showFvg    = input.bool(true,  "FVG текущего таймфрейма",             group = G_FVG)
+bool   showFvgH   = input.bool(true,  "FVG старшего таймфрейма",             group = G_FVG)
+string fvgHtf     = input.timeframe("1D", "Старший таймфрейм FVG",           group = G_FVG)
+float  fvgMin     = input.float(0.25, "Мин. размер гэпа (× ATR)",            minval = 0.0, maxval = 5.0, step = 0.05, group = G_FVG)
+bool   showIfvg   = input.bool(true,  "Инвертировать пробитые FVG → iFVG",   group = G_FVG)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  4. ВХОДЫ · ЛИКВИДНОСТЬ
+// ─────────────────────────────────────────────────────────────────────────────
+bool   showLiq    = input.bool(true,  "Показывать EQH / EQL",                group = G_LIQ)
+float  eqTol      = input.float(0.35, "Допуск равенства (× ATR)",            minval = 0.01, maxval = 3.0, step = 0.05, group = G_LIQ)
+string txtLiq     = input.string("ликвидность", "Подпись пула ликвидности",  group = G_LIQ)
+int    maxLiq     = input.int(8,      "Макс. пулов ликвидности",             minval = 1, maxval = 30, group = G_LIQ)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  5. ВХОДЫ · ДИЛИНГ-РЕЙНДЖ
+// ─────────────────────────────────────────────────────────────────────────────
+bool   showRng    = input.bool(true,  "Показывать дилинг-рейндж",            group = G_RNG)
+float  fibKey     = input.float(0.62, "Ключевой уровень Фибо",               minval = 0.1, maxval = 0.9, step = 0.01, group = G_RNG)
+bool   showRngPct = input.bool(true,  "Позиция цены в рейндже, %",           group = G_RNG)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  6. ВХОДЫ · КЛЮЧЕВЫЕ УРОВНИ
+// ─────────────────────────────────────────────────────────────────────────────
+bool   showLvl    = input.bool(true,  "Ключевые уровни с плашками",          group = G_LVL)
+bool   showPoi    = input.bool(true,  "Метки POI / POL",                     group = G_LVL)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  7. ВХОДЫ · ТРЕНД-ЛЕНТА И КАНАЛ
+// ─────────────────────────────────────────────────────────────────────────────
+bool   showRib    = input.bool(true,  "Тренд-лента",                         group = G_TRND)
+int    ribFast    = input.int(20,     "Лента · быстрый период",              minval = 2, maxval = 200, group = G_TRND)
+int    ribSlow    = input.int(45,     "Лента · медленный период",            minval = 3, maxval = 400, group = G_TRND)
+bool   showChan   = input.bool(true,  "Регрессионный канал",                 group = G_TRND)
+int    chanLen    = input.int(150,    "Канал · длина",                       minval = 20, maxval = 1000, group = G_TRND)
+float  chanMult   = input.float(2.0,  "Канал · ширина (× σ)",                minval = 0.5, maxval = 6.0, step = 0.1, group = G_TRND)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  8. ВХОДЫ · СЕССИИ / НОВОСТИ / РИСК
+// ─────────────────────────────────────────────────────────────────────────────
+bool   showToday  = input.bool(true,  "Маркер «СЕГОДНЯ»",                    group = G_NEWS)
+string txtToday   = input.string("СЕГОДНЯ", "Текст маркера дня",             group = G_NEWS)
+bool   showRisk   = input.bool(true,  "Плашка риска по событиям",            group = G_NEWS)
+string txtRisk    = input.string("⚠ РИСК", "Текст плашки риска",             group = G_NEWS)
+bool   ev1On      = input.bool(false, "Событие 1",                           group = G_NEWS, inline = "e1")
+int    ev1T       = input.time(timestamp(2026, 1, 1, 0, 0), "",              group = G_NEWS, inline = "e1")
+string ev1N       = input.string("FED", "",                                  group = G_NEWS, inline = "e1")
+bool   ev2On      = input.bool(false, "Событие 2",                           group = G_NEWS, inline = "e2")
+int    ev2T       = input.time(timestamp(2026, 1, 1, 0, 0), "",              group = G_NEWS, inline = "e2")
+string ev2N       = input.string("CPI", "",                                  group = G_NEWS, inline = "e2")
+bool   ev3On      = input.bool(false, "Событие 3",                           group = G_NEWS, inline = "e3")
+int    ev3T       = input.time(timestamp(2026, 1, 1, 0, 0), "",              group = G_NEWS, inline = "e3")
+string ev3N       = input.string("NFP", "",                                  group = G_NEWS, inline = "e3")
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  9. ВХОДЫ · ИНФО-ПАНЕЛЬ
+// ─────────────────────────────────────────────────────────────────────────────
+bool   showPnl    = input.bool(true,  "Показывать инфо-панель",              group = G_PNL)
+string pnlPos     = input.string("Справа сверху", "Положение панели", options = ["Справа сверху", "Справа снизу", "Слева сверху", "Слева снизу", "Справа по центру"], group = G_PNL)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. ВХОДЫ · ЦВЕТА
+// ─────────────────────────────────────────────────────────────────────────────
+color  cSupply  = input.color(#7e57c2, "Supply (продажи)",           group = G_COL, inline = "c1")
+color  cDemand  = input.color(#2962ff, "Demand (покупки)",           group = G_COL, inline = "c1")
+color  cFvgUp   = input.color(#26c6da, "FVG бычий",                  group = G_COL, inline = "c2")
+color  cFvgDn   = input.color(#00acc1, "FVG медвежий",               group = G_COL, inline = "c2")
+color  cIfvg    = input.color(#0097a7, "iFVG (инверсия)",            group = G_COL, inline = "c2")
+color  cUp      = input.color(#089981, "Бычья структура",            group = G_COL, inline = "c3")
+color  cDn      = input.color(#f23645, "Медвежья структура",         group = G_COL, inline = "c3")
+color  cIntCol  = input.color(#787b86, "Внутренняя структура",       group = G_COL, inline = "c3")
+color  cLiqCol  = input.color(#f23645, "Ликвидность EQH / EQL",      group = G_COL, inline = "c4")
+color  cLimCol  = input.color(#e91e63, "Метка ЛИМИТКА",              group = G_COL, inline = "c4")
+color  cBadge   = input.color(#26a69a, "Бейдж объёма",               group = G_COL, inline = "c4")
+color  cRibUp   = input.color(#089981, "Лента · рост",               group = G_COL, inline = "c5")
+color  cRibDn   = input.color(#f23645, "Лента · падение",            group = G_COL, inline = "c5")
+color  cChan    = input.color(#9598a1, "Канал",                      group = G_COL, inline = "c5")
+color  cToday   = input.color(#ffca28, "Маркер дня",                 group = G_COL, inline = "c6")
+color  cRiskCol = input.color(#ff9800, "Плашка риска",               group = G_COL, inline = "c6")
+color  cDead    = input.color(#b2b5be, "Отработанная зона",          group = G_COL, inline = "c6")
+color  cLvlUp   = input.color(#f9d423, "Уровень сверху",             group = G_COL, inline = "c7")
+color  cLvlEq   = input.color(#131722, "Равновесие (EQ)",            group = G_COL, inline = "c7")
+color  cLvlDn   = input.color(#ff5c8a, "Уровень снизу",              group = G_COL, inline = "c7")
+color  cPnlBg   = input.color(#ffffff, "Фон панели",                 group = G_COL, inline = "c8")
+color  cPnlFr   = input.color(#d1d4dc, "Рамка панели",               group = G_COL, inline = "c8")
+color  cPnlTx   = input.color(#131722, "Текст панели",               group = G_COL, inline = "c8")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 11. ОБЩИЕ ВЕЛИЧИНЫ И ХЕЛПЕРЫ
+// ─────────────────────────────────────────────────────────────────────────────
+float atr14 = ta.atr(14)
+int   msBar = timeframe.in_seconds(timeframe.period) * 1000
+int   extB  = extBars < 1 ? 1 : extBars
+
+// Диапазоны считаем безусловно: функции ta.* должны вызываться на каждом баре
+float hh100 = ta.highest(high, 100)
+float ll100 = ta.lowest(low, 100)
+float hhSw  = ta.highest(high, swLen * 2)
+float llSw  = ta.lowest(low, swLen * 2)
+float hh200 = ta.highest(high, 200)
+
+// Звёздный рейтинг: 1..5 → "★" … "★★★★★"
+stars(int n) =>
+    string s = ""
+    if n > 0
+        for i = 1 to n
+            s := s + "★"
+    s
+
+// Формат объёма как на эталоне: 6.882K · 107.575K · 1.24M
+fmtVol(float v) =>
+    string s = ""
+    if not na(v)
+        if v >= 1e9
+            s := str.tostring(v / 1e9, "#.###") + "B"
+        else if v >= 1e6
+            s := str.tostring(v / 1e6, "#.###") + "M"
+        else if v >= 1e3
+            s := str.tostring(v / 1e3, "#.###") + "K"
+        else
+            s := str.tostring(v, "#.##")
+    s
+
+// Человекочитаемая метка таймфрейма: 720 → 12H, D → 1D
+prettyTf(simple string tf) =>
+    int sec = timeframe.in_seconds(tf)
+    string res = tf
+    if sec >= 2592000
+        res := str.tostring(int(math.round(sec / 2592000.0))) + "M"
+    else if sec >= 604800
+        res := str.tostring(int(math.round(sec / 604800.0))) + "W"
+    else if sec >= 86400
+        res := str.tostring(int(math.round(sec / 86400.0))) + "D"
+    else if sec >= 3600
+        res := str.tostring(int(math.round(sec / 3600.0))) + "H"
+    else
+        res := str.tostring(int(math.round(sec / 60.0))) + "m"
+    res
+
+panelPos(simple string p) =>
+    string res = position.top_right
+    if p == "Справа снизу"
+        res := position.bottom_right
+    else if p == "Слева сверху"
+        res := position.top_left
+    else if p == "Слева снизу"
+        res := position.bottom_left
+    else if p == "Справа по центру"
+        res := position.middle_right
+    res
+
+string tfNow  = prettyTf(timeframe.period)
+string tfObH  = prettyTf(obHtf)
+string tfFvgH = prettyTf(fvgHtf)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 12. ТИП ЗОНЫ (общий для Order Block и FVG)
+// ─────────────────────────────────────────────────────────────────────────────
+type Area
+    box    bx
+    label  tag
+    label  lim
+    label  bdg
+    float  top
+    float  bot
+    int    t0
+    int    dir      // +1 = сопротивление (сверху), -1 = поддержка (снизу)
+    int    score    // рейтинг 1..5 (звёзды)
+    int    mult     // множитель ×N (объединённые зоны)
+    int    touches  // количество касаний
+    float  vol      // объём импульса
+    string tf       // метка таймфрейма
+    string kind     // "OB" | "FVG"
+    bool   inv      // FVG перешёл в iFVG
+    bool   fresh    // ни одного касания
+    bool   dead     // отработана
+
+var array<Area> areas = array.new<Area>()
+
+// Цвет заливки/границы зоны
+areaColor(string kind, int dir, bool inv) =>
+    color c = kind == "OB" ? (dir > 0 ? cSupply : cDemand) : (inv ? cIfvg : (dir > 0 ? cFvgDn : cFvgUp))
+    c
+
+// Текст зоны: «Supply 1D ★★ ×2» / «iFVG ★★★★»
+areaText(Area a) =>
+    string nm = a.kind == "OB" ? (a.dir > 0 ? "Supply" : "Demand") : (a.inv ? "iFVG" : "FVG")
+    string s  = nm + (a.kind == "OB" ? " " + a.tf : "")
+    s := s + (a.score > 0 ? " " + stars(a.score) : "")
+    s := s + (a.mult > 1 ? " ×" + str.tostring(a.mult) : "")
+    s
+
+// Создание зоны либо объединение с уже существующей перекрывающейся (даёт ×N)
+addArea(array<Area> arr, int dir, float top, float bot, int t0, float vol, int score, string tf, string kind) =>
+    bool merged = false
+    int  cnt    = array.size(arr)
+    if cnt > 0 and not na(top) and not na(bot)
+        for i = 0 to cnt - 1
+            Area a = array.get(arr, i)
+            if not a.dead and a.dir == dir and a.kind == kind and a.tf == tf and top >= a.bot and bot <= a.top
+                a.mult    := a.mult + 1
+                a.top     := math.max(a.top, top)
+                a.bot     := math.min(a.bot, bot)
+                a.score   := math.min(5, math.max(a.score, score))
+                a.vol     := nz(a.vol) + nz(vol)
+                a.fresh   := true
+                box.set_top(a.bx, a.top)
+                box.set_bottom(a.bx, a.bot)
+                merged := true
+                break
+    if not merged and not na(top) and not na(bot)
+        color  bc = areaColor(kind, dir, false)
+        int    rt = t0 + msBar
+        box    b  = box.new(t0, top, rt, bot, xloc = xloc.bar_time, border_color = color.new(bc, 20), border_width = 1, border_style = line.style_dashed, bgcolor = color.new(bc, kind == "OB" ? 88 : 91))
+        label  tg = label.new(rt, top, "", xloc = xloc.bar_time, yloc = yloc.price, style = label.style_none, textcolor = bc, size = size.tiny, color = color.new(color.white, 100))
+        label  lm = label.new(rt, top, "", xloc = xloc.bar_time, yloc = yloc.price, style = label.style_none, textcolor = cLimCol, size = size.tiny, color = color.new(color.white, 100))
+        label  bd = label.new(rt, math.avg(top, bot), "", xloc = xloc.bar_time, yloc = yloc.price, style = label.style_none, textcolor = color.white, size = size.tiny, color = color.new(kind == "OB" ? (dir > 0 ? cSupply : cBadge) : cBadge, 0))
+        array.push(arr, Area.new(bx = b, tag = tg, lim = lm, bdg = bd, top = top, bot = bot, t0 = t0, dir = dir, score = score, mult = 1, touches = 0, vol = vol, tf = tf, kind = kind, inv = false, fresh = true, dead = false))
+        if array.size(arr) > maxAreas
+            Area old = array.shift(arr)
+            box.delete(old.bx)
+            label.delete(old.tag)
+            label.delete(old.lim)
+            label.delete(old.bdg)
+    merged
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 13. ДВИЖОК ЗОН (Order Block по сломам структуры) — используется и на HTF
+// ─────────────────────────────────────────────────────────────────────────────
+obEngine(simple int len, simple int look, simple int vlen) =>
+    float ph  = ta.pivothigh(high, len, len)
+    float pl  = ta.pivotlow(low, len, len)
+    float atr = ta.atr(50)
+    float av  = ta.sma(volume, vlen)
+
+    var float swH  = na
+    var bool  swHf = false
+    var float swL  = na
+    var bool  swLf = false
+    var int   bias = 0
+
+    if not na(ph)
+        swH  := ph
+        swHf := true
+    if not na(pl)
+        swL  := pl
+        swLf := true
+
+    int   dir   = 0
+    float top   = na
+    float bot   = na
+    int   t0    = na
+    float vol   = na
+    int   score = 0
+
+    bool brkUp = swHf and not na(swH) and close > swH
+    bool brkDn = swLf and not na(swL) and close < swL
+
+    if brkUp or brkDn
+        bool isChoch = brkUp ? bias < 0 : bias > 0
+        int  found   = -1
+        for i = 0 to look
+            bool opp = brkUp ? close[i] < open[i] : close[i] > open[i]
+            if opp
+                found := i
+                break
+        if found >= 0
+            float hi   = high[found]
+            float lo   = low[found]
+            float imp  = 0.0
+            for i = 0 to found
+                imp := imp + nz(volume[i])
+            float relV = na(av) or av <= 0 ? 1.0 : imp / (av * (found + 1))
+            float relH = na(atr) or atr <= 0 ? 1.0 : (hi - lo) / atr
+            int   sc   = 1
+            sc := sc + (relV > 1.15 ? 1 : 0)
+            sc := sc + (relV > 1.80 ? 1 : 0)
+            sc := sc + (relH > 0.70 ? 1 : 0)
+            sc := sc + (isChoch ? 1 : 0)
+            dir   := brkUp ? -1 : 1
+            top   := hi
+            bot   := lo
+            t0    := time[found]
+            vol   := imp
+            score := math.min(5, math.max(1, sc))
+        if brkUp
+            swHf := false
+            bias := 1
+        else
+            swLf := false
+            bias := -1
+    [dir, top, bot, t0, vol, score]
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 14. ДВИЖОК FVG — используется и на HTF
+// ─────────────────────────────────────────────────────────────────────────────
+fvgEngine(simple float minMult) =>
+    float atr = ta.atr(50)
+    float av  = ta.sma(volume, 50)
+
+    int   dir   = 0
+    float top   = na
+    float bot   = na
+    int   t0    = na
+    float vol   = na
+    int   score = 0
+
+    bool  bull = low > high[2] and close[1] > open[1]
+    bool  bear = high < low[2] and close[1] < open[1]
+    float gap  = bull ? low - high[2] : bear ? low[2] - high : na
+
+    if (bull or bear) and not na(gap) and not na(atr) and atr > 0 and gap >= atr * minMult
+        float relS = gap / atr
+        float relV = na(av) or av <= 0 ? 1.0 : nz(volume[1]) / av
+        int   sc   = 1
+        sc := sc + (relS > 0.60 ? 1 : 0)
+        sc := sc + (relS > 1.20 ? 1 : 0)
+        sc := sc + (relV > 1.20 ? 1 : 0)
+        sc := sc + (relV > 2.00 ? 1 : 0)
+        dir   := bull ? -1 : 1
+        top   := bull ? low : low[2]
+        bot   := bull ? high[2] : high
+        t0    := time[2]
+        vol   := nz(volume[1])
+        score := math.min(5, math.max(1, sc))
+    [dir, top, bot, t0, vol, score]
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 15. ПОЛУЧЕНИЕ ДАННЫХ ДВИЖКОВ (текущий ТФ + старший ТФ)
+// ─────────────────────────────────────────────────────────────────────────────
+[obD, obT, obB, obTm, obV, obS] = obEngine(obLen, obLook, volLen)
+[fvD, fvT, fvB, fvTm, fvV, fvS] = fvgEngine(fvgMin)
+[obHD, obHT, obHB, obHTm, obHV, obHS] = request.security(syminfo.tickerid, obHtf, obEngine(obLen, obLook, volLen), lookahead = barmerge.lookahead_off)
+[fvHD, fvHT, fvHB, fvHTm, fvHV, fvHS] = request.security(syminfo.tickerid, fvgHtf, fvgEngine(fvgMin), lookahead = barmerge.lookahead_off)
+
+bool newObTf  = showObTf  and obD != 0 and not na(obTm)
+bool newObHtf = showObHtf and obHD != 0 and not na(obHTm) and (na(obHTm[1]) or obHTm != obHTm[1])
+bool newFvTf  = showFvg   and fvD != 0 and not na(fvTm)
+bool newFvHtf = showFvgH  and fvHD != 0 and not na(fvHTm) and (na(fvHTm[1]) or fvHTm != fvHTm[1])
+
+if newObTf
+    addArea(areas, obD, obT, obB, obTm, obV, obS, tfNow, "OB")
+if newObHtf
+    addArea(areas, obHD, obHT, obHB, obHTm, obHV, obHS, tfObH, "OB")
+if newFvTf
+    addArea(areas, fvD, fvT, fvB, fvTm, fvV, fvS, tfNow, "FVG")
+if newFvHtf
+    addArea(areas, fvHD, fvHT, fvHB, fvHTm, fvHV, fvHS, tfFvgH, "FVG")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 16. ОБНОВЛЕНИЕ ЗОН: касания, отработка, инверсия FVG → iFVG, подписи
+// ─────────────────────────────────────────────────────────────────────────────
+bool sigTouch  = false
+bool sigInvert = false
+
+int rightT = time + extB * msBar
+int cntA   = array.size(areas)
+if cntA > 0
+    for i = cntA - 1 to 0
+        Area a = array.get(areas, i)
+        if not a.dead
+            bool inside = high >= a.bot and low <= a.top
+            if inside
+                a.touches := a.touches + 1
+                if a.fresh
+                    sigTouch := true
+                a.fresh := false
+            bool broken = (a.dir < 0 and close < a.bot) or (a.dir > 0 and close > a.top)
+            if broken
+                if a.kind == "FVG" and not a.inv and showIfvg
+                    a.inv     := true
+                    a.dir     := -a.dir
+                    a.fresh   := true
+                    a.touches := 0
+                    sigInvert := true
+                    color ic = areaColor(a.kind, a.dir, true)
+                    box.set_border_color(a.bx, color.new(ic, 10))
+                    box.set_bgcolor(a.bx, color.new(ic, 86))
+                    label.set_textcolor(a.tag, ic)
+                else
+                    a.dead := true
+        if a.dead and delMitig
+            box.delete(a.bx)
+            label.delete(a.tag)
+            label.delete(a.lim)
+            label.delete(a.bdg)
+            array.remove(areas, i)
+        else if a.dead
+            box.set_bgcolor(a.bx, color.new(cDead, 93))
+            box.set_border_color(a.bx, color.new(cDead, 55))
+            label.set_text(a.tag, "")
+            label.set_text(a.lim, "")
+            label.set_style(a.bdg, label.style_none)
+            label.set_text(a.bdg, "")
+        else
+            box.set_right(a.bx, rightT)
+            label.set_x(a.tag, rightT)
+            label.set_y(a.tag, a.top)
+            label.set_text(a.tag, areaText(a))
+            bool lim = showLimit and a.fresh and a.score >= limScore
+            label.set_x(a.lim, rightT + 6 * msBar)
+            label.set_y(a.lim, a.top)
+            label.set_text(a.lim, lim ? txtLimit : "")
+            bool bdg = showBadge and not na(a.vol)
+            label.set_style(a.bdg, bdg ? label.style_label_left : label.style_none)
+            label.set_x(a.bdg, rightT + msBar)
+            label.set_y(a.bdg, math.avg(a.top, a.bot))
+            label.set_text(a.bdg, bdg ? fmtVol(a.vol) + (a.mult > 1 ? " ×" + str.tostring(a.mult) : "") : "")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 17. СТРУКТУРА: CHoCH / BOS (свинг + внутренняя)
+// ─────────────────────────────────────────────────────────────────────────────
+var array<line>  stLines = array.new<line>()
+var array<label> stLabs  = array.new<label>()
+
+addStruct(array<line> ls, array<label> lbs, int x1, float y1, int x2, string txt, color c) =>
+    line  l  = line.new(x1, y1, x2, y1, xloc = xloc.bar_index, color = c, style = line.style_dashed, width = 1)
+    label lb = label.new(int(math.avg(x1, x2)), y1, txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_none, textcolor = c, size = size.tiny, color = color.new(color.white, 100))
+    array.push(ls, l)
+    array.push(lbs, lb)
+    if array.size(ls) > maxStruct
+        line.delete(array.shift(ls))
+    if array.size(lbs) > maxStruct
+        label.delete(array.shift(lbs))
+    lb
+
+float sph = ta.pivothigh(high, swLen, swLen)
+float spl = ta.pivotlow(low, swLen, swLen)
+float iph = ta.pivothigh(high, inLen, inLen)
+float ipl = ta.pivotlow(low, inLen, inLen)
+
+var float sH  = na
+var int   sHb = na
+var bool  sHf = false
+var float sL  = na
+var int   sLb = na
+var bool  sLf = false
+var int   sBias = 0
+
+var float iH  = na
+var int   iHb = na
+var bool  iHf = false
+var float iL  = na
+var int   iLb = na
+var bool  iLf = false
+var int   iBias = 0
+
+if not na(sph)
+    sH  := sph
+    sHb := bar_index - swLen
+    sHf := true
+if not na(spl)
+    sL  := spl
+    sLb := bar_index - swLen
+    sLf := true
+if not na(iph)
+    iH  := iph
+    iHb := bar_index - inLen
+    iHf := true
+if not na(ipl)
+    iL  := ipl
+    iLb := bar_index - inLen
+    iLf := true
+
+bool chochUp = false
+bool chochDn = false
+
+if sHf and not na(sH) and close > sH
+    bool isCh = sBias < 0
+    if showStruct
+        addStruct(stLines, stLabs, sHb, sH, bar_index, isCh ? txtChoCh : txtBos, cUp)
+    chochUp := isCh
+    sHf     := false
+    sBias   := 1
+if sLf and not na(sL) and close < sL
+    bool isCh = sBias > 0
+    if showStruct
+        addStruct(stLines, stLabs, sLb, sL, bar_index, isCh ? txtChoCh : txtBos, cDn)
+    chochDn := isCh
+    sLf     := false
+    sBias   := -1
+if iHf and not na(iH) and close > iH
+    if showInt
+        addStruct(stLines, stLabs, iHb, iH, bar_index, iBias < 0 ? txtChoChI : txtBosI, cIntCol)
+    iHf   := false
+    iBias := 1
+if iLf and not na(iL) and close < iL
+    if showInt
+        addStruct(stLines, stLabs, iLb, iL, bar_index, iBias > 0 ? txtChoChI : txtBosI, cIntCol)
+    iLf   := false
+    iBias := -1
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 18. ЛИКВИДНОСТЬ EQH / EQL
+// ─────────────────────────────────────────────────────────────────────────────
+var array<box>   liqBox = array.new<box>()
+var float lastPH  = na
+var int   lastPHt = na
+var float lastPL  = na
+var int   lastPLt = na
+bool sigEqh = false
+bool sigEql = false
+
+pushLiq(array<box> arr, int t1, int t2, float lvl, float pad, string txt) =>
+    box b = box.new(t1, lvl + pad, t2, lvl - pad, xloc = xloc.bar_time, border_color = color.new(cLiqCol, 20), border_width = 1, border_style = line.style_solid, bgcolor = color.new(cLiqCol, 88), text = txt, text_color = cLiqCol, text_size = size.tiny, text_halign = text.align_right, text_valign = text.align_center)
+    array.push(arr, b)
+    if array.size(arr) > maxLiq
+        box.delete(array.shift(arr))
+    b
+
+float eqPad = eqTol * nz(atr14) * 0.35
+
+if showLiq and not na(sph)
+    if not na(lastPH) and not na(atr14) and math.abs(sph - lastPH) <= eqTol * atr14
+        pushLiq(liqBox, lastPHt, time[swLen] + 6 * msBar, math.avg(sph, lastPH), eqPad, "EQH ×2 " + txtLiq)
+        sigEqh := true
+    lastPH  := sph
+    lastPHt := time[swLen]
+if showLiq and not na(spl)
+    if not na(lastPL) and not na(atr14) and math.abs(spl - lastPL) <= eqTol * atr14
+        pushLiq(liqBox, lastPLt, time[swLen] + 6 * msBar, math.avg(spl, lastPL), eqPad, "EQL ×2 " + txtLiq)
+        sigEql := true
+    lastPL  := spl
+    lastPLt := time[swLen]
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 19. ТРЕНД-ЛЕНТА
+// ─────────────────────────────────────────────────────────────────────────────
+float ribF = ta.hma(close, ribFast)
+float ribS = ta.ema(close, ribSlow)
+bool  ribUpTrend = ribF > ribS
+color ribCol = ribUpTrend ? cRibUp : cRibDn
+
+plotF = plot(showRib ? ribF : na, "Тренд-лента · быстрая", color = ribCol, linewidth = 2)
+plotS = plot(showRib ? ribS : na, "Тренд-лента · медленная", color = color.new(ribCol, 45), linewidth = 1)
+fill(plotF, plotS, color = color.new(ribCol, 88), title = "Облако тренда")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 20. РЕГРЕССИОННЫЙ КАНАЛ
+// ─────────────────────────────────────────────────────────────────────────────
+float lrNow  = ta.linreg(close, chanLen, 0)
+float lrPrev = ta.linreg(close, chanLen, 1)
+float lrDev  = ta.stdev(close, chanLen)
+
+var line     chMid = na
+var line     chUp  = na
+var line     chDn  = na
+var linefill chFu  = na
+var linefill chFd  = na
+
+if showChan and barstate.islast and not na(lrNow) and not na(lrPrev) and not na(lrDev)
+    float slope = lrNow - lrPrev
+    float y2    = lrNow
+    float y1    = lrNow - slope * (chanLen - 1)
+    int   x1    = bar_index - chanLen + 1
+    int   x2    = bar_index
+    float d     = lrDev * chanMult
+    if na(chMid)
+        chMid := line.new(x1, y1, x2, y2, xloc = xloc.bar_index, extend = extend.right, color = color.new(cChan, 25), style = line.style_dashed, width = 1)
+        chUp  := line.new(x1, y1 + d, x2, y2 + d, xloc = xloc.bar_index, extend = extend.right, color = color.new(cChan, 25), style = line.style_solid, width = 1)
+        chDn  := line.new(x1, y1 - d, x2, y2 - d, xloc = xloc.bar_index, extend = extend.right, color = color.new(cChan, 25), style = line.style_solid, width = 1)
+        chFu  := linefill.new(chUp, chMid, color.new(cChan, 94))
+        chFd  := linefill.new(chMid, chDn, color.new(cChan, 94))
+    else
+        line.set_xy1(chMid, x1, y1)
+        line.set_xy2(chMid, x2, y2)
+        line.set_xy1(chUp, x1, y1 + d)
+        line.set_xy2(chUp, x2, y2 + d)
+        line.set_xy1(chDn, x1, y1 - d)
+        line.set_xy2(chDn, x2, y2 - d)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 21. ДИЛИНГ-РЕЙНДЖ · PREMIUM / DISCOUNT
+// ─────────────────────────────────────────────────────────────────────────────
+var line  rngEq  = na
+var line  rngFib = na
+var label rngLb  = na
+var label rngPct = na
+
+float rHi = na(sH) ? hh100 : math.max(sH, hhSw)
+float rLo = na(sL) ? ll100 : math.min(sL, llSw)
+
+if showRng and barstate.islast and not na(rHi) and not na(rLo) and rHi > rLo
+    float eq   = math.avg(rHi, rLo)
+    float fib  = rLo + (rHi - rLo) * fibKey
+    int   xA   = bar_index - 60
+    int   xB   = bar_index + extB
+    float pos  = (close - rLo) / (rHi - rLo) * 100.0
+    if na(rngEq)
+        rngEq  := line.new(xA, eq, xB, eq, xloc = xloc.bar_index, color = color.new(cLvlEq, 35), style = line.style_dashed, width = 1)
+        rngFib := line.new(xA, fib, xB, fib, xloc = xloc.bar_index, color = color.new(cChan, 20), style = line.style_dotted, width = 1)
+        rngLb  := label.new(xB, fib, str.tostring(fibKey, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_none, textcolor = color.new(cLvlEq, 20), size = size.tiny, color = color.new(color.white, 100))
+        rngPct := label.new(xB, rHi, "", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_none, textcolor = color.new(cChan, 0), size = size.tiny, color = color.new(color.white, 100))
+    else
+        line.set_xy1(rngEq, xA, eq)
+        line.set_xy2(rngEq, xB, eq)
+        line.set_xy1(rngFib, xA, fib)
+        line.set_xy2(rngFib, xB, fib)
+        label.set_xy(rngLb, xB, fib)
+        label.set_xy(rngPct, xB, rHi)
+    label.set_text(rngPct, showRngPct ? str.tostring(pos, "#.#") + "%" : "")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 22. КЛЮЧЕВЫЕ УРОВНИ С ЦЕНОВЫМИ ПЛАШКАМИ + POI / POL
+// ─────────────────────────────────────────────────────────────────────────────
+var line  lnUp  = na
+var line  lnEq  = na
+var line  lnDn  = na
+var label lbUp  = na
+var label lbEq  = na
+var label lbDn  = na
+var label lbPoi = na
+var label lbPol = na
+
+if showLvl and barstate.islast
+    float up  = na
+    float dn  = na
+    float poi = na
+    int   poiS = 0
+    int   n = array.size(areas)
+    if n > 0
+        for i = 0 to n - 1
+            Area a = array.get(areas, i)
+            if not a.dead
+                if a.dir > 0 and a.bot > close
+                    up := na(up) ? a.bot : math.min(up, a.bot)
+                if a.dir < 0 and a.top < close
+                    dn := na(dn) ? a.top : math.max(dn, a.top)
+                if a.fresh and a.score >= poiS
+                    poiS := a.score
+                    poi  := math.avg(a.top, a.bot)
+    up := na(up) ? rHi : up
+    dn := na(dn) ? rLo : dn
+    float eq = math.avg(rHi, rLo)
+    int xA = bar_index - 40
+    int xB = bar_index + extB
+    if na(lnUp)
+        lnUp := line.new(xA, up, xB, up, xloc = xloc.bar_index, color = color.new(cLvlUp, 15), style = line.style_solid, width = 1)
+        lnEq := line.new(xA, eq, xB, eq, xloc = xloc.bar_index, color = color.new(cLvlEq, 45), style = line.style_dotted, width = 1)
+        lnDn := line.new(xA, dn, xB, dn, xloc = xloc.bar_index, color = color.new(cLvlDn, 15), style = line.style_solid, width = 1)
+        lbUp := label.new(xB, up, "", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = cLvlUp, textcolor = #131722, size = size.tiny)
+        lbEq := label.new(xB, eq, "", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = cLvlEq, textcolor = color.white, size = size.tiny)
+        lbDn := label.new(xB, dn, "", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = cLvlDn, textcolor = color.white, size = size.tiny)
+    else
+        line.set_xy1(lnUp, xA, up)
+        line.set_xy2(lnUp, xB, up)
+        line.set_xy1(lnEq, xA, eq)
+        line.set_xy2(lnEq, xB, eq)
+        line.set_xy1(lnDn, xA, dn)
+        line.set_xy2(lnDn, xB, dn)
+        label.set_xy(lbUp, xB, up)
+        label.set_xy(lbEq, xB, eq)
+        label.set_xy(lbDn, xB, dn)
+    label.set_text(lbUp, str.tostring(up, format.mintick))
+    label.set_text(lbEq, str.tostring(eq, format.mintick))
+    label.set_text(lbDn, str.tostring(dn, format.mintick))
+    if showPoi
+        if na(lbPoi)
+            lbPoi := label.new(bar_index + 2, na(poi) ? eq : poi, "POI", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_none, textcolor = color.new(cLvlEq, 25), size = size.tiny, color = color.new(color.white, 100))
+            lbPol := label.new(bar_index + 2, up, "POL", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_none, textcolor = color.new(cLvlEq, 25), size = size.tiny, color = color.new(color.white, 100))
+        else
+            label.set_xy(lbPoi, bar_index + 2, na(poi) ? eq : poi)
+            label.set_xy(lbPol, bar_index + 2, up)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 23. МАРКЕР «СЕГОДНЯ» И РИСК-СОБЫТИЯ
+// ─────────────────────────────────────────────────────────────────────────────
+var line  todayLn = na
+var label todayLb = na
+var label riskLb  = na
+var array<line>  evLines = array.new<line>()
+var array<label> evLabs  = array.new<label>()
+
+float topY = hh200 + nz(atr14) * 2.0
+
+bool newDay = timeframe.change("1D")
+var int dayStartIdx = na
+if newDay
+    dayStartIdx := bar_index
+
+if showToday and barstate.islast and not na(dayStartIdx)
+    if na(todayLn)
+        todayLn := line.new(dayStartIdx, low, dayStartIdx, high, xloc = xloc.bar_index, extend = extend.both, color = color.new(cToday, 40), style = line.style_dashed, width = 1)
+        todayLb := label.new(dayStartIdx, topY, txtToday, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = cToday, textcolor = #131722, size = size.tiny)
+    else
+        line.set_xy1(todayLn, dayStartIdx, low)
+        line.set_xy2(todayLn, dayStartIdx, high)
+        label.set_xy(todayLb, dayStartIdx, topY)
+        label.set_text(todayLb, txtToday)
+
+evHit(bool on, int t) =>
+    bool res = on and not na(t) and time <= t and time_close > t
+    res
+
+string evNow = ""
+if ev1On and evHit(ev1On, ev1T)
+    evNow := evNow + (str.length(evNow) > 0 ? " · " : "") + ev1N
+if ev2On and evHit(ev2On, ev2T)
+    evNow := evNow + (str.length(evNow) > 0 ? " · " : "") + ev2N
+if ev3On and evHit(ev3On, ev3T)
+    evNow := evNow + (str.length(evNow) > 0 ? " · " : "") + ev3N
+
+if showRisk and str.length(evNow) > 0
+    line l = line.new(bar_index, low, bar_index, high, xloc = xloc.bar_index, extend = extend.both, color = color.new(cRiskCol, 55), style = line.style_dotted, width = 1)
+    label lb = label.new(bar_index, topY, evNow, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(cRiskCol, 15), textcolor = color.white, size = size.tiny)
+    array.push(evLines, l)
+    array.push(evLabs, lb)
+    if array.size(evLines) > 12
+        line.delete(array.shift(evLines))
+    if array.size(evLabs) > 12
+        label.delete(array.shift(evLabs))
+
+bool riskToday = false
+if showRisk
+    int dayMs = 86400000
+    int d0 = int(math.floor(time / dayMs))
+    riskToday := (ev1On and not na(ev1T) and int(math.floor(ev1T / dayMs)) == d0) or (ev2On and not na(ev2T) and int(math.floor(ev2T / dayMs)) == d0) or (ev3On and not na(ev3T) and int(math.floor(ev3T / dayMs)) == d0)
+
+if showRisk and barstate.islast
+    if na(riskLb)
+        riskLb := label.new(bar_index + extB, topY, "", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(cRiskCol, 10), textcolor = color.white, size = size.tiny)
+    else
+        label.set_xy(riskLb, bar_index + extB, topY)
+    label.set_text(riskLb, riskToday ? txtRisk + " · " + txtToday : "")
+    label.set_style(riskLb, riskToday ? label.style_label_down : label.style_none)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 24. ИНФО-ПАНЕЛЬ
+// ─────────────────────────────────────────────────────────────────────────────
+var table pnl = na
+
+if showPnl and barstate.islast
+    if na(pnl)
+        pnl := table.new(panelPos(pnlPos), 2, 6, bgcolor = cPnlBg, frame_color = cPnlFr, frame_width = 1, border_color = cPnlFr, border_width = 1)
+    string nearTxt = "—"
+    float  nearDst = na
+    int    n = array.size(areas)
+    float  best = na
+    if n > 0
+        for i = 0 to n - 1
+            Area a = array.get(areas, i)
+            if not a.dead
+                float mid = math.avg(a.top, a.bot)
+                float d   = math.abs(close - mid)
+                if na(best) or d < best
+                    best    := d
+                    nearTxt := areaText(a)
+                    nearDst := (mid - close) / close * 100.0
+    float posPct = not na(rHi) and not na(rLo) and rHi > rLo ? (close - rLo) / (rHi - rLo) * 100.0 : na
+    table.cell(pnl, 0, 0, "SMC SUITE", text_color = cPnlTx, text_size = size.tiny, bgcolor = color.new(cPnlFr, 55))
+    table.cell(pnl, 1, 0, tfNow + " · " + syminfo.ticker, text_color = cPnlTx, text_size = size.tiny, bgcolor = color.new(cPnlFr, 55))
+    table.cell(pnl, 0, 1, "Тренд", text_color = cPnlTx, text_size = size.tiny)
+    table.cell(pnl, 1, 1, ribUpTrend ? "Бычий" : "Медвежий", text_color = ribUpTrend ? cUp : cDn, text_size = size.tiny)
+    table.cell(pnl, 0, 2, "Структура", text_color = cPnlTx, text_size = size.tiny)
+    table.cell(pnl, 1, 2, sBias > 0 ? "Вверх" : sBias < 0 ? "Вниз" : "Флэт", text_color = sBias > 0 ? cUp : sBias < 0 ? cDn : cPnlTx, text_size = size.tiny)
+    table.cell(pnl, 0, 3, "Ближайшая зона", text_color = cPnlTx, text_size = size.tiny)
+    table.cell(pnl, 1, 3, nearTxt, text_color = cPnlTx, text_size = size.tiny)
+    table.cell(pnl, 0, 4, "Дистанция", text_color = cPnlTx, text_size = size.tiny)
+    table.cell(pnl, 1, 4, na(nearDst) ? "—" : str.tostring(nearDst, "#.##") + " %", text_color = cPnlTx, text_size = size.tiny)
+    table.cell(pnl, 0, 5, "Рейндж / Риск", text_color = cPnlTx, text_size = size.tiny)
+    table.cell(pnl, 1, 5, (na(posPct) ? "—" : str.tostring(posPct, "#.#") + " %") + (riskToday ? " · " + txtRisk : ""), text_color = riskToday ? cRiskCol : cPnlTx, text_size = size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 25. АЛЕРТЫ
+// ─────────────────────────────────────────────────────────────────────────────
+alertcondition(chochUp, "CHoCH вверх", "SMC: смена характера вверх (CHoCH)")
+alertcondition(chochDn, "CHoCH вниз", "SMC: смена характера вниз (CHoCH)")
+alertcondition(newObTf or newObHtf, "Новая зона", "SMC: сформирована новая зона Supply/Demand")
+alertcondition(sigTouch, "Касание зоны", "SMC: цена вошла в свежую зону")
+alertcondition(sigInvert, "Инверсия FVG", "SMC: FVG перешёл в iFVG")
+alertcondition(sigEqh, "EQH", "SMC: равные максимумы (пул ликвидности сверху)")
+alertcondition(sigEql, "EQL", "SMC: равные минимумы (пул ликвидности снизу)")
