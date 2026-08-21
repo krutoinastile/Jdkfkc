@@ -101,13 +101,13 @@ string txtToday   = input.string("СЕГОДНЯ", "Текст маркера д
 bool   showRisk   = input.bool(true,  "Плашка риска по событиям",            group = G_NEWS)
 string txtRisk    = input.string("⚠ РИСК", "Текст плашки риска",             group = G_NEWS)
 bool   ev1On      = input.bool(false, "Событие 1",                           group = G_NEWS, inline = "e1")
-int    ev1T       = input.time(timestamp(2026, 1, 1, 0, 0), "",              group = G_NEWS, inline = "e1")
+int    ev1T       = input.time(timestamp("1 Jan 2026 00:00 +0000"), "", group = G_NEWS, inline = "e1")
 string ev1N       = input.string("FED", "",                                  group = G_NEWS, inline = "e1")
 bool   ev2On      = input.bool(false, "Событие 2",                           group = G_NEWS, inline = "e2")
-int    ev2T       = input.time(timestamp(2026, 1, 1, 0, 0), "",              group = G_NEWS, inline = "e2")
+int    ev2T       = input.time(timestamp("1 Jan 2026 00:00 +0000"), "", group = G_NEWS, inline = "e2")
 string ev2N       = input.string("CPI", "",                                  group = G_NEWS, inline = "e2")
 bool   ev3On      = input.bool(false, "Событие 3",                           group = G_NEWS, inline = "e3")
-int    ev3T       = input.time(timestamp(2026, 1, 1, 0, 0), "",              group = G_NEWS, inline = "e3")
+int    ev3T       = input.time(timestamp("1 Jan 2026 00:00 +0000"), "", group = G_NEWS, inline = "e3")
 string ev3N       = input.string("NFP", "",                                  group = G_NEWS, inline = "e3")
 
 // ─────────────────────────────────────────────────────────────────────────────
