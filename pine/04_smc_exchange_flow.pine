@@ -1,0 +1,55 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SMC EXCHANGE FLOW [RU]  ·  нижняя панель №3 (биржевой поток)
+//  Объём с разделением на покупки/продажи, дельта и кумулятивная дельта,
+//  подсветка всплесков и средняя линия объёма.
+// ═══════════════════════════════════════════════════════════════════════════════
+indicator(title = "SMC Exchange Flow [RU]", shorttitle = "SMC Поток", overlay = false, format = format.volume, precision = 0)
+
+const string G_MODE = "① Режим"
+const string G_CALC = "② Расчёт"
+const string G_COL  = "③ Цвета"
+
+string mode   = input.string("Объём (покупки/продажи)", "Что показывать", options = ["Объём (покупки/продажи)", "Дельта", "Кумулятивная дельта"], group = G_MODE)
+bool   showMa = input.bool(true,  "Средняя линия объёма", group = G_MODE)
+bool   showSp = input.bool(true,  "Подсвечивать всплески", group = G_MODE)
+
+int    maLen  = input.int(21,  "Период средней",            minval = 2,   maxval = 300, group = G_CALC)
+float  spikeM = input.float(1.8, "Всплеск объёма (× среднего)", minval = 1.0, maxval = 10.0, step = 0.1, group = G_CALC)
+int    cumLen = input.int(0,   "Сброс кумулятивной дельты (баров, 0 = без сброса)", minval = 0, maxval = 5000, group = G_CALC)
+
+color  cBuy   = input.color(#26a69a, "Покупки",   group = G_COL, inline = "1")
+color  cSell  = input.color(#ef5350, "Продажи",   group = G_COL, inline = "1")
+color  cNeut  = input.color(#90caf9, "Нейтральный объём", group = G_COL, inline = "2")
+color  cSpike = input.color(#00e676, "Всплеск",   group = G_COL, inline = "2")
+color  cMa    = input.color(#ff9800, "Средняя",   group = G_COL, inline = "2")
+
+// ── Разделение объёма бара на покупки и продажи ─────────────────────────────
+float rng   = math.max(high - low, syminfo.mintick)
+float buyV  = volume * (close - low) / rng
+float sellV = volume * (high - close) / rng
+float delta = buyV - sellV
+
+float avgV  = ta.sma(volume, maLen)
+bool  spike = showSp and not na(avgV) and avgV > 0 and volume > avgV * spikeM
+
+int   resetLen = cumLen < 1 ? 1000000 : cumLen
+bool  doReset  = cumLen > 0 and bar_index % resetLen == 0
+var float cumD = 0.0
+cumD := (doReset ? 0.0 : nz(cumD)) + nz(delta)
+
+bool  volMode = mode == "Объём (покупки/продажи)"
+bool  dltMode = mode == "Дельта"
+bool  cumMode = mode == "Кумулятивная дельта"
+float mainSer = volMode ? volume : dltMode ? delta : cumD
+
+color mainCol = volMode ? (spike ? color.new(cSpike, 25) : delta >= 0 ? color.new(cBuy, 45) : color.new(cNeut, 45)) : (mainSer >= 0 ? color.new(cBuy, 25) : color.new(cSell, 25))
+
+plot(cumMode ? na : mainSer, "Биржевой поток", color = mainCol, style = plot.style_columns, linewidth = 2)
+plot(cumMode ? cumD : na, "Кумулятивная дельта", color = mainCol, style = plot.style_area, linewidth = 2)
+plot(volMode and showMa ? avgV : na, "Средний объём", color = color.new(cMa, 20), linewidth = 1)
+hline(0, "Ноль", color = color.new(#787b86, 55))
+
+alertcondition(spike, "Всплеск объёма", "SMC Поток: объём выше среднего в заданное число раз")
+alertcondition(ta.crossover(delta, 0), "Дельта вверх", "SMC Поток: дельта сменилась на положительную")
+alertcondition(ta.crossunder(delta, 0), "Дельта вниз", "SMC Поток: дельта сменилась на отрицательную")

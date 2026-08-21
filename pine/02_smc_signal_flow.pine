@@ -1,0 +1,81 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SMC SIGNAL FLOW [RU]  ·  нижняя панель №1 (сигнальная)
+//  Гистограмма импульса · линия давления покупателей/продавцов · треугольники
+//  сигналов и предупреждений · метки всплесков объёма «⚡».
+//  Ставится в отдельную панель под графиком.
+// ═══════════════════════════════════════════════════════════════════════════════
+indicator(title = "SMC Signal Flow [RU]", shorttitle = "SMC Flow", overlay = false, precision = 1, max_labels_count = 200)
+
+const string G_CALC = "① Расчёт"
+const string G_SIG  = "② Сигналы"
+const string G_COL  = "③ Цвета"
+
+int   fastLen  = input.int(12,   "Импульс · быстрая EMA",        minval = 1,  maxval = 200, group = G_CALC)
+int   slowLen  = input.int(26,   "Импульс · медленная EMA",      minval = 2,  maxval = 400, group = G_CALC)
+int   sigLen   = input.int(9,    "Импульс · сигнальная EMA",     minval = 1,  maxval = 100, group = G_CALC)
+int   normLen  = input.int(200,  "Период нормализации",          minval = 20, maxval = 1000, group = G_CALC)
+int   presLen  = input.int(7,    "Сглаживание давления",         minval = 1,  maxval = 100, group = G_CALC)
+int   volLen   = input.int(50,   "Период среднего объёма",       minval = 5,  maxval = 300, group = G_CALC)
+
+float spikeM   = input.float(1.8, "Всплеск объёма (× среднего)", minval = 1.0, maxval = 10.0, step = 0.1, group = G_SIG)
+float extLvl   = input.float(45,  "Порог экстремума давления",   minval = 5,   maxval = 100, step = 1,   group = G_SIG)
+bool  showBolt = input.bool(true, "Метка «⚡» на всплесках объёма", group = G_SIG)
+bool  showConf = input.bool(true, "Квадраты подтверждения тренда", group = G_SIG)
+
+color cBull   = input.color(#089981, "Рост",                 group = G_COL, inline = "1")
+color cBear   = input.color(#f23645, "Падение",              group = G_COL, inline = "1")
+color cWarnUp = input.color(#ff9800, "Предупреждение (лонг)", group = G_COL, inline = "2")
+color cWarnDn = input.color(#e53935, "Предупреждение (шорт)", group = G_COL, inline = "2")
+color cPres   = input.color(#7e57c2, "Линия давления",        group = G_COL, inline = "3")
+color cConf   = input.color(#26a69a, "Подтверждение",         group = G_COL, inline = "3")
+
+// ── Давление покупателей / продавцов внутри бара ─────────────────────────────
+float rng    = math.max(high - low, syminfo.mintick)
+float buyV   = volume * (close - low) / rng
+float sellV  = volume * (high - close) / rng
+float presRw = volume <= 0 ? 0.0 : (buyV - sellV) / volume * 100.0
+float pres   = ta.ema(presRw, presLen)
+
+// ── Импульс (нормализованная гистограмма MACD) ───────────────────────────────
+float macdL = ta.ema(close, fastLen) - ta.ema(close, slowLen)
+float sigL  = ta.ema(macdL, sigLen)
+float histR = macdL - sigL
+float scale = math.max(ta.highest(math.abs(histR), normLen), syminfo.mintick)
+float hist  = 100.0 * histR / scale
+
+// ── Объём и сигналы ─────────────────────────────────────────────────────────
+float avgVol   = ta.sma(volume, volLen)
+bool  volSpike = not na(avgVol) and avgVol > 0 and volume > avgVol * spikeM
+
+bool buySig  = ta.crossover(hist, 0) and pres > 0
+bool sellSig = ta.crossunder(hist, 0) and pres < 0
+bool warnUp  = volSpike and pres >= extLvl and close > open
+bool warnDn  = volSpike and pres <= -extLvl and close < open
+bool confUp  = showConf and hist > 0 and pres > 0 and hist > hist[1]
+bool confDn  = showConf and hist < 0 and pres < 0 and hist < hist[1]
+
+// ── Отрисовка ───────────────────────────────────────────────────────────────
+color histCol = hist >= 0 ? color.new(cBull, hist > hist[1] ? 20 : 55) : color.new(cBear, hist < hist[1] ? 20 : 55)
+
+hline(0,   "Ноль",       color = color.new(#787b86, 40), linestyle = hline.style_solid)
+hline(100, "Верх",       color = color.new(#787b86, 75), linestyle = hline.style_dotted)
+hline(-100, "Низ",       color = color.new(#787b86, 75), linestyle = hline.style_dotted)
+
+plot(hist, "Импульс", color = histCol, style = plot.style_columns, linewidth = 3)
+plot(pres, "Давление потока", color = color.new(cPres, 10), linewidth = 2)
+
+plotshape(buySig  ? -100 : na, "Сигнал покупки",   style = shape.triangleup,   location = location.absolute, color = cBull,   size = size.tiny)
+plotshape(sellSig ?  100 : na, "Сигнал продажи",   style = shape.triangledown, location = location.absolute, color = cBear,   size = size.tiny)
+plotshape(warnUp  ?   88 : na, "Риск перегрева",   style = shape.triangledown, location = location.absolute, color = cWarnDn, size = size.tiny)
+plotshape(warnDn  ?  -88 : na, "Риск перепродажи", style = shape.triangleup,   location = location.absolute, color = cWarnUp, size = size.tiny)
+plotshape(confUp  ?    0 : na, "Подтверждение вверх", style = shape.square,    location = location.absolute, color = color.new(cConf, 20), size = size.tiny)
+plotshape(confDn  ?    0 : na, "Подтверждение вниз",  style = shape.square,    location = location.absolute, color = color.new(cBear, 20), size = size.tiny)
+plotchar(showBolt and volSpike ? (close >= open ? 118 : -118) : na, "Всплеск объёма", "⚡", location = location.absolute, color = close >= open ? cBull : cBear, size = size.tiny)
+
+bgcolor(pres >= extLvl ? color.new(cBull, 92) : pres <= -extLvl ? color.new(cBear, 92) : na, title = "Экстремум давления")
+
+alertcondition(buySig,  "Сигнал покупки",  "SMC Flow: импульс развернулся вверх")
+alertcondition(sellSig, "Сигнал продажи", "SMC Flow: импульс развернулся вниз")
+alertcondition(warnUp,  "Перегрев",       "SMC Flow: всплеск объёма на перекупленности")
+alertcondition(warnDn,  "Перепродажа",    "SMC Flow: всплеск объёма на перепроданности")

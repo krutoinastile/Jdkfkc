@@ -1,0 +1,115 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SMC MULTI OSCILLATOR [RU]  ·  нижняя панель №2
+//  Три нормализованных осциллятора (RSI · Stochastic · CCI) в одной шкале
+//  −100…+100, зоны перекупленности/перепроданности с заливкой и таблица
+//  «Перекупленность / Перепроданность» с источниками «поток биржевой» и
+//  «ТФ скупает» — как на эталонном скриншоте.
+// ═══════════════════════════════════════════════════════════════════════════════
+indicator(title = "SMC Multi Oscillator [RU]", shorttitle = "SMC Osc", overlay = false, precision = 1)
+
+const string G_OSC = "① Осцилляторы"
+const string G_ZON = "② Зоны и уровни"
+const string G_TBL = "③ Таблица"
+const string G_COL = "④ Цвета"
+
+int    rsiLen  = input.int(14,  "RSI · период",              minval = 2, maxval = 200, group = G_OSC)
+int    stoLen  = input.int(14,  "Stochastic · период",       minval = 2, maxval = 200, group = G_OSC)
+int    stoSm   = input.int(3,   "Stochastic · сглаживание",  minval = 1, maxval = 50,  group = G_OSC)
+int    cciLen  = input.int(20,  "CCI · период",              minval = 2, maxval = 200, group = G_OSC)
+int    smooth  = input.int(2,   "Общее сглаживание",         minval = 1, maxval = 50,  group = G_OSC)
+int    htfLen  = input.int(14,  "RSI старшего ТФ · период",  minval = 2, maxval = 200, group = G_OSC)
+string htf     = input.timeframe("1D", "Старший таймфрейм",  group = G_OSC)
+
+float  obLvl   = input.float(60, "Порог перекупленности",    minval = 10, maxval = 100, step = 1, group = G_ZON)
+float  osLvl   = input.float(-60, "Порог перепроданности",   minval = -100, maxval = -10, step = 1, group = G_ZON)
+bool   showFill = input.bool(true, "Заливка зон экстремума", group = G_ZON)
+
+bool   showTbl = input.bool(true, "Показывать таблицу",      group = G_TBL)
+string tblPos  = input.string("Справа снизу", "Положение таблицы", options = ["Справа снизу", "Справа сверху", "Слева снизу", "Слева сверху", "Справа по центру"], group = G_TBL)
+string txtOb   = input.string("Перекупленность", "Заголовок слева",  group = G_TBL)
+string txtOs   = input.string("Перепроданность", "Заголовок справа", group = G_TBL)
+string txtSrc1 = input.string("поток биржевой",  "Подпись 1",        group = G_TBL)
+string txtSrc2 = input.string("ТФ скупает",      "Подпись 2",        group = G_TBL)
+
+color  cRsi    = input.color(#2962ff, "RSI",                 group = G_COL, inline = "1")
+color  cSto    = input.color(#ff9800, "Stochastic",           group = G_COL, inline = "1")
+color  cCci    = input.color(#089981, "CCI",                  group = G_COL, inline = "1")
+color  cObCol  = input.color(#f23645, "Перекупленность",      group = G_COL, inline = "2")
+color  cOsCol  = input.color(#26a69a, "Перепроданность",      group = G_COL, inline = "2")
+color  cTblBg  = input.color(#ffffff, "Фон таблицы",          group = G_COL, inline = "3")
+color  cTblFr  = input.color(#d1d4dc, "Рамка таблицы",        group = G_COL, inline = "3")
+color  cTblTx  = input.color(#131722, "Текст таблицы",        group = G_COL, inline = "3")
+
+tblPosition(simple string p) =>
+    string res = position.bottom_right
+    if p == "Справа сверху"
+        res := position.top_right
+    else if p == "Слева снизу"
+        res := position.bottom_left
+    else if p == "Слева сверху"
+        res := position.top_left
+    else if p == "Справа по центру"
+        res := position.middle_right
+    res
+
+// ── Нормализация всех осцилляторов в шкалу −100 … +100 ───────────────────────
+float rsiV = ta.rsi(close, rsiLen)
+float oRsi = ta.sma((rsiV - 50) * 2, smooth)
+
+float stoV = ta.sma(ta.stoch(close, high, low, stoLen), stoSm)
+float oSto = ta.sma((stoV - 50) * 2, smooth)
+
+float cciV = ta.cci(close, cciLen)
+float oCci = ta.sma(math.max(math.min(cciV / 2, 100), -100), smooth)
+
+float rsiH = request.security(syminfo.tickerid, htf, ta.rsi(close, htfLen), lookahead = barmerge.lookahead_off)
+float oHtf = (nz(rsiH, 50.0) - 50.0) * 2.0
+
+// ── Давление биржевого потока (для строк таблицы) ────────────────────────────
+float rng   = math.max(high - low, syminfo.mintick)
+float presR = volume <= 0 ? 0.0 : (volume * (close - low) / rng - volume * (high - close) / rng) / volume * 100.0
+float pres  = ta.ema(presR, 7)
+
+// ── Доли перекупленности / перепроданности (0…100 %) ─────────────────────────
+float nRsi = nz(oRsi)
+float nSto = nz(oSto)
+float nCci = nz(oCci)
+int obCnt = (nRsi >= obLvl ? 1 : 0) + (nSto >= obLvl ? 1 : 0) + (nCci >= obLvl ? 1 : 0)
+int osCnt = (nRsi <= osLvl ? 1 : 0) + (nSto <= osLvl ? 1 : 0) + (nCci <= osLvl ? 1 : 0)
+float obPct = obCnt / 3.0 * 100.0
+float osPct = osCnt / 3.0 * 100.0
+
+// ── Отрисовка ───────────────────────────────────────────────────────────────
+hline(0, "Середина", color = color.new(#787b86, 45), linestyle = hline.style_solid)
+
+pTop = plot(100,   "Максимум",              color = color.new(#787b86, 80), linewidth = 1, editable = false)
+pOb  = plot(obLvl, "Порог перекупленности", color = color.new(cObCol, 55),  linewidth = 1, editable = false)
+pOs  = plot(osLvl, "Порог перепроданности", color = color.new(cOsCol, 55),  linewidth = 1, editable = false)
+pBot = plot(-100,  "Минимум",               color = color.new(#787b86, 80), linewidth = 1, editable = false)
+
+fill(pTop, pOb, color = showFill ? color.new(cObCol, 92) : na, title = "Зона перекупленности")
+fill(pOs, pBot, color = showFill ? color.new(cOsCol, 92) : na, title = "Зона перепроданности")
+
+plot(oRsi, "RSI (норм.)",        color = color.new(cRsi, 0),  linewidth = 2)
+plot(oSto, "Stochastic (норм.)", color = color.new(cSto, 15), linewidth = 1)
+plot(oCci, "CCI (норм.)",        color = color.new(cCci, 15), linewidth = 1)
+plot(oHtf, "RSI старшего ТФ",    color = color.new(cRsi, 65), linewidth = 1, style = plot.style_stepline)
+
+bgcolor(obCnt == 3 ? color.new(cObCol, 88) : osCnt == 3 ? color.new(cOsCol, 88) : na, title = "Согласие осцилляторов")
+
+// ── Таблица «Перекупленность / Перепроданность» ──────────────────────────────
+var table tbl = na
+
+if showTbl and barstate.islast
+    if na(tbl)
+        tbl := table.new(tblPosition(tblPos), 2, 3, bgcolor = cTblBg, frame_color = cTblFr, frame_width = 1, border_color = cTblFr, border_width = 1)
+    table.cell(tbl, 0, 0, txtOb, text_color = cTblTx, text_size = size.tiny, bgcolor = cTblBg)
+    table.cell(tbl, 1, 0, txtOs, text_color = cTblTx, text_size = size.tiny, bgcolor = cTblBg)
+    table.cell(tbl, 0, 1, str.tostring(obPct, "#") + " %", text_color = obPct > 0 ? cObCol : cTblTx, text_size = size.tiny, bgcolor = color.new(cObCol, obPct > 0 ? 82 : 96))
+    table.cell(tbl, 1, 1, str.tostring(osPct, "#") + " %", text_color = osPct > 0 ? cOsCol : cTblTx, text_size = size.tiny, bgcolor = color.new(cOsCol, osPct > 0 ? 82 : 96))
+    table.cell(tbl, 0, 2, txtSrc1 + (pres >= 0 ? " ↑" : " ↓"), text_color = pres >= 0 ? cOsCol : cObCol, text_size = size.tiny, bgcolor = cTblBg)
+    table.cell(tbl, 1, 2, txtSrc2 + (oHtf >= 0 ? " ↑" : " ↓"), text_color = oHtf >= 0 ? cOsCol : cObCol, text_size = size.tiny, bgcolor = cTblBg)
+
+alertcondition(obCnt == 3, "Полная перекупленность", "SMC Osc: все осцилляторы в перекупленности")
+alertcondition(osCnt == 3, "Полная перепроданность", "SMC Osc: все осцилляторы в перепроданности")
