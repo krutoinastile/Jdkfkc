@@ -41,17 +41,7 @@ color  cTblBg  = input.color(#ffffff, "Фон таблицы",          group = 
 color  cTblFr  = input.color(#d1d4dc, "Рамка таблицы",        group = G_COL, inline = "3")
 color  cTblTx  = input.color(#131722, "Текст таблицы",        group = G_COL, inline = "3")
 
-tblPosition(simple string p) =>
-    string res = position.bottom_right
-    if p == "Справа сверху"
-        res := position.top_right
-    else if p == "Слева снизу"
-        res := position.bottom_left
-    else if p == "Слева сверху"
-        res := position.top_left
-    else if p == "Справа по центру"
-        res := position.middle_right
-    res
+string tblAt = tblPos == "Справа сверху" ? position.top_right : tblPos == "Слева снизу" ? position.bottom_left : tblPos == "Слева сверху" ? position.top_left : tblPos == "Справа по центру" ? position.middle_right : position.bottom_right
 
 // ── Нормализация всех осцилляторов в шкалу −100 … +100 ───────────────────────
 float rsiV = ta.rsi(close, rsiLen)
@@ -103,7 +93,7 @@ var table tbl = na
 
 if showTbl and barstate.islast
     if na(tbl)
-        tbl := table.new(tblPosition(tblPos), 2, 3, bgcolor = cTblBg, frame_color = cTblFr, frame_width = 1, border_color = cTblFr, border_width = 1)
+        tbl := table.new(tblAt, 2, 3, bgcolor = cTblBg, frame_color = cTblFr, frame_width = 1, border_color = cTblFr, border_width = 1)
     table.cell(tbl, 0, 0, txtOb, text_color = cTblTx, text_size = size.tiny, bgcolor = cTblBg)
     table.cell(tbl, 1, 0, txtOs, text_color = cTblTx, text_size = size.tiny, bgcolor = cTblBg)
     table.cell(tbl, 0, 1, str.tostring(obPct, "#") + " %", text_color = obPct > 0 ? cObCol : cTblTx, text_size = size.tiny, bgcolor = color.new(cObCol, obPct > 0 ? 82 : 96))

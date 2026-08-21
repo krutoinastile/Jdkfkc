@@ -195,17 +195,7 @@ prettyTf(simple string tf) =>
         res := str.tostring(int(math.round(sec / 60.0))) + "m"
     res
 
-panelPos(simple string p) =>
-    string res = position.top_right
-    if p == "Справа снизу"
-        res := position.bottom_right
-    else if p == "Слева сверху"
-        res := position.top_left
-    else if p == "Слева снизу"
-        res := position.bottom_left
-    else if p == "Справа по центру"
-        res := position.middle_right
-    res
+string pnlAt = pnlPos == "Справа снизу" ? position.bottom_right : pnlPos == "Слева сверху" ? position.top_left : pnlPos == "Слева снизу" ? position.bottom_left : pnlPos == "Справа по центру" ? position.middle_right : position.top_right
 
 string tfNow  = prettyTf(timeframe.period)
 string tfObH  = prettyTf(obHtf)
@@ -789,7 +779,7 @@ var table pnl = na
 
 if showPnl and barstate.islast
     if na(pnl)
-        pnl := table.new(panelPos(pnlPos), 2, 6, bgcolor = cPnlBg, frame_color = cPnlFr, frame_width = 1, border_color = cPnlFr, border_width = 1)
+        pnl := table.new(pnlAt, 2, 6, bgcolor = cPnlBg, frame_color = cPnlFr, frame_width = 1, border_color = cPnlFr, border_width = 1)
     string nearTxt = "—"
     float  nearDst = na
     int    n = array.size(areas)
