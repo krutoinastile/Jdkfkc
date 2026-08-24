@@ -1,0 +1,21 @@
+[Unit]
+Description=DeepSeek Harness web UI (guardshop.shop)
+Documentation=https://github.com/deepseek-ai/deepseek-harness
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dsh
+Group=dsh
+WorkingDirectory=/opt/dsh/app
+ExecStart=/opt/dsh/run-web.sh
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+MemoryHigh=900M
+StandardOutput=append:/var/log/dsh-web.log
+StandardError=append:/var/log/dsh-web.log
+
+[Install]
+WantedBy=multi-user.target
